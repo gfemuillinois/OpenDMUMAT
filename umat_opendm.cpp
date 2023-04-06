@@ -63,7 +63,7 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde, double *sse
    double strain[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};					   
    double dstrain[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};					   
    double stress[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};					   
-   double statev[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};		   
+   double statev[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};		   
    double ddsdde[] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 					   
  		     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 					   
  		     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 					   
@@ -80,8 +80,8 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde, double *sse
    int ndi = 3; // 3 direct stress/strain components					   
    int nshr = 3; // 3 shear stress/strain components					   
    int ntens = ndi+nshr; // 6 total componenets. ndi+nshr				   
-   int nstatv = 11;									   
-   int nprops = 20; // Number of properties for the user mat				   
+   int nstatv = 13;									   
+   int nprops = 21; // Number of properties for the user mat				   
    int noel = 1;									
    int npt = 0; // Integration point number						   
    double ddsddt = 0.;								   
@@ -103,17 +103,23 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde, double *sse
  											   
    // setup a loop to call umat each step						   
    int nInc = 10;									   
-   double stepSize = 10000.0/(nInc);							   
+   double stepSize = 30000.0/(nInc);							   
    double S11 = 1.0/E11, S12 = -nu12/E11, S22 = 1.0/E22, S44 = 1.0/G12;		   
    std::ofstream myFile;								   
    myFile.open("umatTestOut_Shear.csv");						   
    myFile << "step, strain, stress" << std::endl;					   
    myFile << 0 << ", " << 0.0 << ", " << 0.0 << std::endl;				   
+   const bool tensRun = true;
    for (int iPull = 1; iPull <= nInc; iPull++) {					   
      // Increment dstrain								   
-     dstrain[0] = iPull*stepSize*(S11 + S12);						   
-     dstrain[1] = iPull*stepSize*(S12 + S22);						   
-     dstrain[3] = iPull*stepSize*(S44);						   
+     if (tensRun) {
+       dstrain[0] = iPull*stepSize*(S11);						   
+       dstrain[1] = iPull*stepSize*(S12);						   
+     } else {
+       dstrain[0] = iPull*stepSize*(S11 + S12);						   
+       dstrain[1] = iPull*stepSize*(S12 + S22);						   
+       dstrain[3] = iPull*stepSize*(S44);						   
+     }
      // run model									   
      clock_t start = clock();								   
      (umat)(stress, statev, ddsdde, &sse, &spd, &scd, &rpl, &ddsddt,			   
@@ -124,8 +130,8 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde, double *sse
  											   
      clock_t end = clock();								   
      std::cout << "step = " << iPull << " Time = " << (end - start) << std::endl;	   
-     // std::cout << "Strain: " << (*dstrain) << std::endl;				   
-     // std::cout << "Stress: " << (*stress) << std::endl;				   
+     std::cout << "Strain: " << (*dstrain) << std::endl;				   
+     std::cout << "Stress: " << (*stress) << std::endl;				   
      myFile << iPull << ", " << dstrain[3] << ", " << stress[3] << std::endl;		   
    }											   
    myFile.close();									   
