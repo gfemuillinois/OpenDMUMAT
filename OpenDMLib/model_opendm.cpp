@@ -11,7 +11,7 @@
 
 
 // Some things of note:
-// Abaqus stress conv: S11, S22, S33, S12, 13, 23
+// Abaqus stress conv: S11, S22, S33, S12, S13, S23
 //
 
 /********************************************************************/
@@ -186,8 +186,10 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   H2 = Matrix6d::Zero();
   H1(0,0) = stressAct(stressEst(0))*S0(0,0);
   H1(3,3) = hs(0)*S0(3,3);
+  H1(4,4) = hs(0)*S0(4,4);
   H2(1,1) = stressAct(stressEst(1))*S0(1,1);
   H2(3,3) = hs(1)*S0(3,3);
+  H2(5,5) = hs(1)*S0(5,5);
 
   // Get Seff, Ceff
   Matrix6d Seff = S0 + dVals(0)*H1 + dVals(1)*H2;
