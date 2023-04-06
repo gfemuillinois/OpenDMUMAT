@@ -182,14 +182,7 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
 
   // Make two H matrices
   Matrix6d H1, H2;
-  H1 = Matrix6d::Zero();
-  H2 = Matrix6d::Zero();
-  H1(0,0) = stressAct(stressEst(0))*S0(0,0);
-  H1(3,3) = hs(0)*S0(3,3);
-  H1(4,4) = hs(0)*S0(4,4);
-  H2(1,1) = stressAct(stressEst(1))*S0(1,1);
-  H2(3,3) = hs(1)*S0(3,3);
-  H2(5,5) = hs(1)*S0(5,5);
+  calcH1H2(stressEst, H1, H2);
 
   // Get Seff, Ceff
   Matrix6d Seff = S0 + dVals(0)*H1 + dVals(1)*H2;
@@ -255,6 +248,30 @@ Vector2d OpenDMModel::calcDVals(const Vector2d& gVals) const {
     dVals(iVal) = dc(iVal)*(1.0 - exp(gExp));
   }
   return dVals;
+}
+/********************************************************************/
+/********************************************************************/
+
+void OpenDMModel::calcH1H2(const Vector6d& stressEst,
+			   Matrix6d& H1,
+			   Matrix6d& H2) const {
+  // zero out inputs
+  H1 = Matrix6d::Zero();
+  H2 = Matrix6d::Zero();
+  // H1
+  // Mode I
+  H1(0,0) = stressAct(stressEst(0))*S0(0,0);
+  // Mode III
+  H1(3,3) = hs(0)*S0(3,3);
+  // Mode II
+  H1(4,4) = hs(0)*S0(4,4);
+  // H2
+  // Mode I
+  H2(1,1) = stressAct(stressEst(1))*S0(1,1);
+  // Mode II
+  H2(3,3) = hs(1)*S0(3,3);
+  // Mode III
+  H2(5,5) = hs(1)*S0(5,5);
 }
 /********************************************************************/
 /********************************************************************/

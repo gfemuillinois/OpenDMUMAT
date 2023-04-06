@@ -61,6 +61,11 @@ private:
    */
   Vector2d calcDVals(const Vector2d& gVals) const;
 
+  /** @brief calculate damage effect tensor H1, H2
+   */
+  void calcH1H2(const Vector6d& stressEst, Matrix6d& H1,
+		Matrix6d& H2) const;
+
   /** @brief get activation function for stress
    * basically just to affect stiffness only in tension
    */
