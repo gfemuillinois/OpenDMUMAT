@@ -106,7 +106,7 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde, double *sse
    double stepSize = 30000.0/(nInc);							   
    double S11 = 1.0/E11, S12 = -nu12/E11, S22 = 1.0/E22, S44 = 1.0/G12;		   
    std::ofstream myFile;								   
-   myFile.open("umatTestOut_Shear.csv");						   
+   myFile.open("umatTestOut.csv");						   
    myFile << "step, strain, stress" << std::endl;					   
    myFile << 0 << ", " << 0.0 << ", " << 0.0 << std::endl;				   
    const bool tensRun = true;
@@ -132,7 +132,7 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde, double *sse
      std::cout << "step = " << iPull << " Time = " << (end - start) << std::endl;	   
      std::cout << "Strain: " << (*dstrain) << std::endl;				   
      std::cout << "Stress: " << (*stress) << std::endl;				   
-     myFile << iPull << ", " << dstrain[3] << ", " << stress[3] << std::endl;		   
+     myFile << iPull << ", " << dstrain[0] << ", " << stress[0] << std::endl;		   
    }											   
    myFile.close();									   
  											   

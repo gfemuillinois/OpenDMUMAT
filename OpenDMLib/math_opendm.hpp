@@ -1,4 +1,7 @@
 // Basic math operations tailored for openDM
+#ifndef MATH_OPENDM_H
+#define MATH_OPENDM_H
+
 #include <Eigen/Dense>
 
 /********************************************************************/
@@ -53,3 +56,4 @@ double macaulayBracket(const double& a) {
 }
 /********************************************************************/
 /********************************************************************/
+#endif
