@@ -7,9 +7,12 @@
 #define MODEL_OPENDM_H
 
 #include <Eigen/Dense>
+#include "math_opendm.hpp"
 
 // 6x6 matrix of doubles
 typedef Eigen::Matrix<double, 6, 6> Matrix6d;
+// 3x3 matrix of doubles
+typedef Eigen::Matrix<double, 3, 3> Matrix3d;
 // 6 row col vector of doubles
 typedef Eigen::Matrix<double, 6, 1> Vector6d;
 // 6 row col vector of doubles
@@ -58,7 +61,7 @@ protected:
   Matrix6d C0;
   
   // Vectors of all params for each damage var
-  VectorXd hs, b, y0, yc, pe, dc;
+  VectorXd hs1, hs2, b, y0, yc, pe, dc;
   // vector of yMax (stateVar)
   VectorXd yMaxSave;
   // matrix of prev Ceff (stateVar)
@@ -98,20 +101,19 @@ private:
 
   /** @brief calculate yMax_i for given strain
    */
-  virtual VectorXd calcYVals(const Vector6d& epsStarMac) const=0;
+  virtual VectorXd calcDrivingForces(const Vector6d& epsStarMac)=0;
 
   /** @brief calculate damage effect tensor H1, H2
    */
-  virtual void calcH1H2(const Vector6d& stressEst, Matrix6d& H1,
-		Matrix6d& H2) const=0;
+  virtual void computeSEff(const Vector6d& stressEst, const VectorXd& dVals,
+		Matrix6d& Seff) =0;
 
   /** @brief compute analytical material tangent stiffness
    */
-  virtual void computeMatTang(const Matrix6d& Ceff, const Matrix6d& H1,
-		      const Matrix6d& H2, const Vector6d& epsStar,
-		      const Vector6d& epsStarMac, const VectorXd yMaxVals,
-		      const VectorXd gVals,
-		      Matrix6d& matTang) const=0;
+  virtual void computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
+			      const Vector6d& epsStarMac, const VectorXd& yMaxVals,
+			      const VectorXd& gVals,
+			      Matrix6d& matTang) const=0;
 
 };
 #endif

@@ -18,6 +18,9 @@ OpenDMModel2Param::OpenDMModel2Param(double* props, int* nprops,
   // Set OpenDM model params
   unpackParams(props);
 
+  // Build base H1 & H2
+  createH1H2();
+
 }
 /********************************************************************/
 /********************************************************************/
@@ -26,17 +29,41 @@ void OpenDMModel2Param::unpackParams(double* props) {
   // props[9:20] = h_s1, h_s2, b_1, b_2, y01, y02,
   // yc1, yc2, pe1, pe2, dc1, dc2
   // unpack props
-  hs = Eigen::Map<Eigen::VectorXd>(props+9,2);
+  hs1 = Eigen::Map<Eigen::VectorXd>(props+9,1);
+  hs2 = Eigen::Map<Eigen::VectorXd>(props+10,1);
   b = Eigen::Map<Eigen::VectorXd>(props+11,2);
-  y0 = Eigen::Map<Eigen::Vector2d>(props+13,2);
-  yc = Eigen::Map<Eigen::Vector2d>(props+15,2);
-  pe = Eigen::Map<Eigen::Vector2d>(props+17,2);
-  dc = Eigen::Map<Eigen::Vector2d>(props+19,2);
+  y0 = Eigen::Map<Eigen::VectorXd>(props+13,2);
+  yc = Eigen::Map<Eigen::VectorXd>(props+15,2);
+  pe = Eigen::Map<Eigen::VectorXd>(props+17,2);
+  dc = Eigen::Map<Eigen::VectorXd>(props+19,2);
 }
 /********************************************************************/
 /********************************************************************/
 
-VectorXd OpenDMModel2Param::calcYVals(const Vector6d& epsStarMac) const {
+void OpenDMModel2Param::createH1H2() {
+  // H1 & H2 without stress activation
+  H1 = Matrix6d::Zero();
+  H2 = Matrix6d::Zero();
+  // H1
+  // Mode I
+  H1(0,0) = S0(0,0);
+  // Mode III
+  H1(3,3) = hs1(0)*S0(3,3);
+  // Mode II
+  H1(4,4) = hs1(0)*S0(4,4);
+  // H2
+  // Mode I
+  H2(1,1) = S0(1,1);
+  // Mode II
+  H2(3,3) = hs2(0)*S0(3,3);
+  // Mode III
+  H2(5,5) = hs2(0)*S0(5,5);
+
+}
+/********************************************************************/
+/********************************************************************/
+
+VectorXd OpenDMModel2Param::calcDrivingForces(const Vector6d& epsStarMac) {
   // EQ 32 in OpenDM-Simple CLT doc
   double E11 = 1.0/S0(0,0);
   double E22 = 1.0/S0(1,1);
@@ -57,35 +84,27 @@ VectorXd OpenDMModel2Param::calcYVals(const Vector6d& epsStarMac) const {
 /********************************************************************/
 /********************************************************************/
 
-void OpenDMModel2Param::calcH1H2(const Vector6d& stressEst,
-			   Matrix6d& H1,
-			   Matrix6d& H2) const {
-  // zero out inputs
-  H1 = Matrix6d::Zero();
-  H2 = Matrix6d::Zero();
+void OpenDMModel2Param::computeSEff(const Vector6d& stressEst,
+				    const VectorXd& dVals,
+				    Matrix6d& Seff) {
+  // stress activation
   // H1
   // Mode I
   H1(0,0) = stressAct(stressEst(0))*S0(0,0);
-  // Mode III
-  H1(3,3) = hs(0)*S0(3,3);
-  // Mode II
-  H1(4,4) = hs(0)*S0(4,4);
   // H2
   // Mode I
   H2(1,1) = stressAct(stressEst(1))*S0(1,1);
-  // Mode II
-  H2(3,3) = hs(1)*S0(3,3);
-  // Mode III
-  H2(5,5) = hs(1)*S0(5,5);
+
+  // Seff = S0 + \sum_i d_i H_i
+  Seff = S0 + dVals(0)*H1 + dVals(1)*H2;
 }
 /********************************************************************/
 /********************************************************************/
 
-void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Matrix6d& H1,
-				 const Matrix6d& H2, const Vector6d& epsStar,
-				 const Vector6d& epsStarMac, const VectorXd yMaxVals,
-				 const VectorXd gVals,
-				 Matrix6d& matTang) const {
+void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
+				       const Vector6d& epsStarMac, const VectorXd& yMaxVals,
+				       const VectorXd& gVals,
+				       Matrix6d& matTang) const {
   // compute ddsdde
   // material tangent computed analytically
   // Some fancy math in here but it is doable and basically just chain

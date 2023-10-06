@@ -7,7 +7,6 @@
 #include <math.h>
 
 #include "model_opendm.hpp"
-#include "math_opendm.hpp"
 
 
 // Some things of note:
@@ -21,11 +20,24 @@ OpenDMModel::OpenDMModel(double* props, int* nprops, double* statev,
                          int* nstatv, const int nDVarsIn)
   : nDamageVars(nDVarsIn) {
 
-  if ((*nprops) != 21) {
-    std::cout << "NOT ENOUGH PROPS!!!" << std::endl;
-  }
-  if ((*nstatv) != 13) {
-    std::cout << "NOT ENOUGH STATEVARS!!!" << std::endl;
+  if (nDVarsIn == 2) {
+    if ((*nprops) != 21) {
+      std::cout << "OpenDMModel::OpenDMModel: NOT ENOUGH PROPS!!!"
+        " using 2 param model " << std::endl;
+    }
+    if ((*nstatv) != 13) {
+      std::cout << "NOT ENOUGH STATEVARS!!!"
+        " using 2 param model " << std::endl;
+    }
+  } else if (nDVarsIn == 4) {
+    if ((*nprops) != 42) {
+      std::cout << "OpenDMModel::OpenDMModel: NOT ENOUGH PROPS!!!"
+        " using 4 param model " << std::endl;
+    }
+    if ((*nstatv) != 17) {
+      std::cout << "NOT ENOUGH STATEVARS!!!"
+        " using 4 param model " << std::endl;
+    }
   }
   // props[0:9] = E11, E22, E33, nu_12, nu_23, nu_13, G_12, G_23, G_13
   // props[9:20] = h_s1, h_s2, b_1, b_2, y01, y02, yc1, yc2, pe1, pe2, dc1, dc2
@@ -58,9 +70,9 @@ void OpenDMModel::computeS0(double* props) {
   double invG13 = 1.0/props[8];
   // Set matrix
   S0(0,0) = invE11; S0(1,1) = invE22; S0(2,2) = invE33;
-  S0(1,0) = nu12*invE11; S0(0,1) = S0(1,0);
-  S0(2,0) = nu13*invE11; S0(0,2) = S0(2,0);
-  S0(2,1) = nu23*invE22; S0(1,2) = S0(2,1);
+  S0(1,0) = -nu12*invE11; S0(0,1) = S0(1,0);
+  S0(2,0) = -nu13*invE11; S0(0,2) = S0(2,0);
+  S0(2,1) = -nu23*invE22; S0(1,2) = S0(2,1);
   S0(3,3) = invG12; S0(4,4) = invG13; S0(5,5) = invG23;
 }
 /********************************************************************/
@@ -163,23 +175,22 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   
   // Macauley strains
   epsStarMac = epsStar;
-  // Only check normal strains
+  // Only check normal strains TODO: Need to check all in 4Param
   for (int iRow = 0; iRow < 3; iRow++) {
-    epsStarMac(iRow) = macaulayBracket(epsStar(iRow));
+    epsStarMac(iRow) = macaulayBracketPlus(epsStar(iRow));
   }
   // update yMax attribute values here
-  VectorXd yMaxVals(nDamageVars), gVals(nDamageVars), dVals(nDamageVars);
-  yMaxVals = calcYVals(epsStarMac);
+  VectorXd yMaxVals(nDamageVars),
+    gVals(nDamageVars), dVals(nDamageVars);
+  
+  yMaxVals = calcDrivingForces(epsStarMac);
   // get g and d values
   calcGVals(yMaxVals, gVals);
   calcDVals(gVals, dVals);
 
-  // Make two H matrices
-  Matrix6d H1, H2;
-  calcH1H2(stressEst, H1, H2);
-
   // Get Seff, Ceff
-  Matrix6d Seff = S0 + dVals(0)*H1 + dVals(1)*H2;
+  Matrix6d Seff = Matrix6d::Zero();
+  computeSEff(stressEst, dVals, Seff);
   Matrix6d Ceff = Matrix6d::Zero();
   matrixInverse(Seff, Ceff);
 
@@ -187,7 +198,7 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   Vector6d sig = Ceff*epsStar;
   // calcTangent
   Matrix6d matTang = Matrix6d::Zero();
-  computeMatTang(Ceff, H1, H2, epsStar, epsStarMac, gVals,
+  computeMatTang(Ceff, epsStar, epsStarMac, gVals,
 		 yMaxVals, matTang);
 
   // Update stateVars (yMax, Ceff)
@@ -204,9 +215,10 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
 void OpenDMModel::calcGVals(const VectorXd& yMax, VectorXd& gVals) const {
   // EQ 34 from OpenDM-Simple CLT doc
   for (int iVal = 0; iVal < nDamageVars; iVal++) {
-    double yDiff = macaulayBracket(sqrt(yMax(iVal)) - sqrt(y0(iVal)));
+    double yDiff = macaulayBracketPlus(sqrt(yMax(iVal)) - sqrt(y0(iVal)));
     gVals(iVal) = yDiff/sqrt(yc(iVal));
   }
+  // std::cout << "g = " << gVals << std::endl;
 }
 /********************************************************************/
 /********************************************************************/
@@ -217,6 +229,7 @@ void OpenDMModel::calcDVals(const VectorXd& gVals, VectorXd& dVals) const {
     double gExp = -1.0*pow(gVals(iVal), pe(iVal));
     dVals(iVal) = dc(iVal)*(1.0 - exp(gExp));
   }
+  // std::cout << "d = " << dVals << std::endl;
 }
 /********************************************************************/
 /********************************************************************/
