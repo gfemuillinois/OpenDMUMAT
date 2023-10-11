@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "model_opendm.hpp"
 #include "model_opendm2param.hpp"
 #include "model_opendm4param.hpp"
@@ -14,9 +16,11 @@ extern "C" {
     OpenDMModel* p_openDMModel = nullptr;
     if ((*nprops) == 21 && (*nstatv) == 13 ) {
       // create 2 parameter damage model
+      std::cout << "Running 2 Param Model!!!" << std::endl;
       p_openDMModel = new OpenDMModel2Param(props, nprops, statev, nstatv);
-    } else if ((*nprops == 42 && (*nstatv) == 17)) {
+    } else if ((*nprops) == 42 && (*nstatv) == 17) {
       // create 4 parameter model
+      std::cout << "Running 4 Param Model!!!" << std::endl;
       p_openDMModel = new OpenDMModel4Param(props, nprops, statev, nstatv);
     }
     // run openDMModel

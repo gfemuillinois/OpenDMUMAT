@@ -1,7 +1,9 @@
 // Implementation of OpenDM as a UMAT
+// by: Bryce Mazurowski (brycepm2@gmail.com)
 //
 
 #include <iostream>
+#include <string>
 #include <ctime>
 #include <fstream>
 
@@ -26,9 +28,8 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde,
                      double *coords, double *drot, double *pnewdt, double *celent, double *dfgrd0,
                      double *dfgrd1, int *noel, int *npt, int *layer, int *kspt,
                      int *kstep, int *kinc) {
-  // SetUp and run openDM model from UMAT call//
+  // SetUp and run openDM model from UMAT call
   runInitOpenDMModel(props, nprops, statev, nstatv, stran, dstran, stress, ddsdde, sse, spd, scd);
-
 }
 /********************************************************************/
 /********************************************************************/
@@ -39,7 +40,7 @@ int main(int argc, char* argv[]) {
   if ( argc != 1 ) {
     modelVal = std::stoi(argv[1]);
   } else {
-    modelVal = 2;
+    modelVal = 4;
   }
   std::cout << "Using model: " << modelVal << std::endl;
 
@@ -58,7 +59,7 @@ int main(int argc, char* argv[]) {
   // applied load
   double loadApplied;
   int nInc = 100;
-  const bool pythonTest = false;
+  const bool pythonTest = true;
   if ( !pythonTest ) {
     // set elasticity
     E11 = 12.416e6; E22 = E11; E33 = 7.513e6;
@@ -67,8 +68,8 @@ int main(int argc, char* argv[]) {
     // damage model parameters
     hs1_11 = 2.5; hs1_12 = hs1_11; hs1_13 = hs1_11;
     hs2_22 = 2.5; hs2_12 = hs2_22; hs2_23 = hs2_22;
-    hs4_11 = 2.5; hs4_12 = hs4_11; hs4_13 = hs4_11;
-    hs5_11 = 2.5; hs5_12 = hs5_11; hs5_13 = hs5_11;
+    hs4_11 = 2.5; hs4_12 = hs4_11; hs4_13 = hs4_11; hs4_16 = hs4_11;
+    hs5_11 = 2.5; hs5_12 = hs5_11; hs5_13 = hs5_11; hs5_16 = hs4_11;
     b1 = 0.2; b2 = b1; b6 = b1;
     y01 = 0.005; y02 = y01; y04 = y01; y05 = y01;
     yc1 = 500; yc2 = yc1; yc4 = yc1; yc5 = yc1;
@@ -165,7 +166,7 @@ int main(int argc, char* argv[]) {
                             yc1, yc2, yc4, yc5,
                             pe1, pe2, pe4, pe5,
                             dc1, dc2, dc4, dc5};
-    for (int iProp = 0; iProp < 42; iProp++) {
+    for (int iProp = 0; iProp < 31; iProp++) {
       props[9+iProp] = props4Param[iProp];
     }
   }
@@ -204,7 +205,7 @@ int main(int argc, char* argv[]) {
   myFile.open(fileName);
   myFile << "step, strain, stress, d1" << std::endl;
   myFile << 0 << ", " << 0.0 << ", " << 0.0 << std::endl;
-  const bool tensRun = false;
+  const bool tensRun = true;
   for (int iPull = 1; iPull <= nInc; iPull++) {
     // Increment dstrain
     if (tensRun) {
@@ -231,7 +232,6 @@ int main(int argc, char* argv[]) {
            << statev[13] << std::endl;
    }
    myFile.close();
-
  }
  /********************************************************************/
  /********************************************************************/

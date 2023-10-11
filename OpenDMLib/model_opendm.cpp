@@ -114,16 +114,14 @@ void OpenDMModel::updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
   statev[7] = Ceff(4,4);
   statev[8] = Ceff(5,5);
 
-  // statev[9:9+nDamageVars] = y1MaxOld, y2MaxOld
-  // check max
-  for (int iY = 0; iY < nDamageVars; iY++) {
-    if (yMax(iY) > yMaxSave(iY)) {
-      yMaxSave(iY) = yMax(iY);
-    }
-  }
+  // statev[9:9+nDamageVars] = y1MaxOld, y2MaxOld,...
   // Start at statev[9] and assign from here
   for (int iPos = 0; iPos < 2*nDamageVars; iPos++) {
     if (iPos < nDamageVars) {
+      // check yMax
+      if (yMax(iPos) > yMaxSave(iPos)) {
+        yMaxSave(iPos) = yMax(iPos);
+      }
       // update yMax Values
       statev[9+iPos] = yMaxSave(iPos);
     } else {
@@ -196,10 +194,11 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
 
   // calcStress
   Vector6d sig = Ceff*epsStar;
+
   // calcTangent
   Matrix6d matTang = Matrix6d::Zero();
-  computeMatTang(Ceff, epsStar, epsStarMac, gVals,
-		 yMaxVals, matTang);
+  computeMatTang(Ceff, epsStar, epsStarMac, yMaxVals,
+		 gVals, matTang);
 
   // Update stateVars (yMax, Ceff)
   updateStateVars(yMaxVals, Ceff, dVals, statev);
