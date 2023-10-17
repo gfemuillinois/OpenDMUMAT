@@ -10,6 +10,8 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 #include "model_opendm4param.hpp"
 
+using std::sqrt;
+
 /********************************************************************/
 /********************************************************************/
 
@@ -156,7 +158,7 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
   Vector6d epsD1 = Vector6d::Zero(), epsD1Plus = Vector6d::Zero(),
     epsD2 = Vector6d::Zero(), epsD2Plus = Vector6d::Zero();
   epsD1(0) = epsStar(0); epsD1(3) = epsStar(3); epsD1(4) = epsStar(4);
-  epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD1(5) = epsStar(5);
+  epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
   posPartStrainD1(epsD1, epsD1Plus);
   posPartStrainD2(epsD2, epsD2Plus);
   
@@ -169,8 +171,8 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
            + b(1)*epsD2Plus(5)*C0(5,5)*epsD2Plus(5));
   double z6 = 0.25*(epsD1Plus(0)*C0(0,0)*epsD1Plus(3)
             + epsD2Plus(1)*C0(1,1)*epsD2Plus(3)
-            + b(2)*C0(3,3)*(epsD1Plus(3)*epsD1Plus(0)
-                                    + epsD2Plus(3)*epsD2Plus(1)));
+            + b(2)*C0(3,3)*(epsD1Plus(3)*epsD1Plus(0) + 
+                            epsD2Plus(3)*epsD2Plus(1)));
 
   // Driving forces for each damage variable
   double y1 = z1 - std::abs(z6);
@@ -183,6 +185,8 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
   yMax(1) = y2 > yMaxSave(1) ? y2 : yMaxSave(1);
   yMax(2) = y4 > yMaxSave(2) ? y4 : yMaxSave(2);
   yMax(3) = y5 > yMaxSave(3) ? y5 : yMaxSave(3);
+  // std::cout << "z = " << z1 << " " << z2 << " "
+  //           << z6 << std::endl;
   // std::cout << "yMax = " << yMax << std::endl;
   return yMax;
 }
@@ -207,8 +211,8 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     eValsD1(2,2) = 0.5*(e11 + rootE11Gam12Gam13);
 
     // v1
-    const double v1Denom = gam12*std::sqrt(gam12*gam12 + gam13*gam13);
-    eVectsD1(1,0) = -gam13*std::abs(gam12)/v1Denom;
+    const double v1Denom = std::sqrt(gam12*gam12 + gam13*gam13);
+    eVectsD1(1,0) = -gam13*std::abs(gam12)/(gam12*v1Denom);
     eVectsD1(2,0) = std::abs(gam12)/v1Denom;
 
     // v2
@@ -360,8 +364,8 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
     eValsD2(2,2) = 0.5*(e22 + rootE22Gam12Gam23);
 
     // v1
-    const double v1Denom = gam12*std::sqrt(gam12*gam12 + gam23*gam23);
-    eVectsD2(1,0) = -gam23*std::abs(gam12)/v1Denom;
+    const double v1Denom = std::sqrt(gam12*gam12 + gam23*gam23);
+    eVectsD2(1,0) = -gam23*std::abs(gam12)/(gam12*v1Denom);
     eVectsD2(2,0) = std::abs(gam12)/v1Denom;
 
     // v2
@@ -1139,10 +1143,11 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   }
 
   // dy/dz
-  double dy1dz1 = 1.0, dy1dz6 = -1.0, dy2dz2 = 1.0, dy2dz6 = -1.0,
-    dy4dz6 = 1.0, dy5dz6 = 1.0;
+  double dy1dz1 = 1.0, dy1dz6 = -1.0, dy2dz2 = 1.0, dy2dz6 = -1.0;
+  double dy4dz6 = yMaxVals(2) > 0.0 ? 1.0 : 0.0,
+    dy5dz6 = yMaxVals(3) > 0.0 ? 1.0 : 0.0;
   
-  // dz/dEpsD1/2
+  // dz/dEpsD1/D2
   Vector6d epsD1 = Vector6d::Zero(), epsD2 = Vector6d::Zero();
   // [eps11, 0, 0, gam12, gam13, 0]
   epsD1(0) = epsStar(0); epsD1(3) = epsStar(3); epsD1(4) = epsStar(4);
@@ -1178,16 +1183,17 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   Vector6d dz6dEps = dEpsD1dEps.transpose()*dz6dEpsD1 + dEpsD2dEps.transpose()*dz6dEpsD2;
   // NOTE: dz1/dEpsD1 -> 6x1, dEpsD1/dEps -> 6x6
   // dEpsD1_i/dEps_j * dz1/dEpsD1_i is what I want
-  // ASSUMING dEpsD1/dEps is symmetric for now... CHECK THIS!!!!!!!
   for (int iInd = 0; iInd < 6; iInd++) {
     for (int jInd = 0; jInd < 6; jInd++) {
       for (int kInd = 0; kInd < 6; kInd++) {
-        dInvSeff1de(iInd,jInd,kInd) = dInvSeffdd1(iInd,jInd)*dd1dg1*dg1dy1*(dy1dz1*dz1dEps(kInd) +
-                  dy1dz6*dz6dEps(kInd));
-        dInvSeff2de(iInd,jInd,kInd) = dInvSeffdd2(iInd, jInd)*dd2dg2*dg2dy2*(dy2dz2*dz2dEps(kInd) +
-			dy2dz6*dz6dEps(kInd));
-        dInvSeff4de(iInd,jInd,kInd) = dInvSeffdd4(iInd,jInd)*dd4dg4*dg4dy4*dy4dz6*dz6dEps(kInd);
-        dInvSeff5de(iInd,jInd,kInd) = dInvSeffdd5(iInd,jInd)*dd5dg5*dg5dy5*dy5dz6*dz6dEps(kInd);
+        dInvSeff1de(iInd,jInd,kInd) = dInvSeffdd1(iInd,jInd)*dd1dg1*
+          dg1dy1*(dy1dz1*dz1dEps(kInd) + dy1dz6*dz6dEps(kInd));
+        dInvSeff2de(iInd,jInd,kInd) = dInvSeffdd2(iInd, jInd)*dd2dg2*
+          dg2dy2*(dy2dz2*dz2dEps(kInd) + dy2dz6*dz6dEps(kInd));
+        dInvSeff4de(iInd,jInd,kInd) = dInvSeffdd4(iInd,jInd)*dd4dg4*
+          dg4dy4*dy4dz6*dz6dEps(kInd);
+        dInvSeff5de(iInd,jInd,kInd) = dInvSeffdd5(iInd,jInd)*dd5dg5*
+          dg5dy5*dy5dz6*dz6dEps(kInd);
       }
     }
   }
@@ -1197,11 +1203,11 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   // dCeff/de . e
   Matrix6d dCeffdEpsDotEps = Matrix6d::Zero();
   for (int iInd = 0; iInd < 6; iInd++) {
-	for (int jInd = 0; jInd < 6; jInd++) {
-	  for (int kInd = 0; kInd < 6; kInd++) {
-	    dCeffdEpsDotEps(iInd, jInd) += dCeffde(iInd, jInd, kInd) * epsStar(kInd);
-	  }
-	}
+    for (int jInd = 0; jInd < 6; jInd++) {
+      for (int kInd = 0; kInd < 6; kInd++) {
+        dCeffdEpsDotEps(iInd, jInd) += dCeffde(iInd, jInd, kInd)*epsStar(kInd);
+      }
+    }
   }
   // Material Tangent = dCeff/de . e + Ceff
   matTang = dCeffdEpsDotEps + Ceff;

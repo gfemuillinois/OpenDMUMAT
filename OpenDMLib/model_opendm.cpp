@@ -226,7 +226,7 @@ void OpenDMModel::calcDVals(const VectorXd& gVals, VectorXd& dVals) const {
   // EQ 35 from OpenDM-Simple CLT doc
   for (int iVal = 0; iVal < nDamageVars; iVal++) {
     double gExp = -1.0*pow(gVals(iVal), pe(iVal));
-    dVals(iVal) = dc(iVal)*(1.0 - exp(gExp));
+    dVals(iVal) = dc(iVal)*(1.0 - std::exp(gExp));
   }
   // std::cout << "d = " << dVals << std::endl;
 }
