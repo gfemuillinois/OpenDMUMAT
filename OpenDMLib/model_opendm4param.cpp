@@ -11,6 +11,7 @@
 #include "model_opendm4param.hpp"
 
 using std::sqrt;
+using std::abs;
 
 /********************************************************************/
 /********************************************************************/
@@ -175,8 +176,8 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
                             epsD2Plus(3)*epsD2Plus(1)));
 
   // Driving forces for each damage variable
-  double y1 = z1 - std::abs(z6);
-  double y2 = z2 - std::abs(z6);
+  double y1 = z1 - abs(z6);
+  double y2 = z2 - abs(z6);
   double y4 = macaulayBracketPlus(z6);
   double y5 = -1.0*macaulayBracketMinus(z6); // must be positive quantity
 
@@ -200,8 +201,8 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
   const double e11 = epsD1(0), gam12 = epsD1(3), gam13 = epsD1(4);
 
   // pick given strain state
-  const bool hasE11 = (e11 != 0.0), hasE12 = (gam12 != 0.0),
-    hasE13 = (gam13 != 0.0);
+  const bool hasE11 = (abs(e11) > 1.0e-12), hasE12 = (abs(gam12) > 1.0e-12),
+    hasE13 = (abs(gam13) > 1.0e-12);
   // useful terms
   const double rootE11Gam12Gam13 =
     std::sqrt(e11*e11 + gam12*gam12 + gam13*gam13);
@@ -211,9 +212,9 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     eValsD1(2,2) = 0.5*(e11 + rootE11Gam12Gam13);
 
     // v1
-    const double v1Denom = std::sqrt(gam12*gam12 + gam13*gam13);
-    eVectsD1(1,0) = -gam13*std::abs(gam12)/(gam12*v1Denom);
-    eVectsD1(2,0) = std::abs(gam12)/v1Denom;
+    const double v1Denom = sqrt(gam12*gam12 + gam13*gam13);
+    eVectsD1(1,0) = -gam13*abs(gam12)/(gam12*v1Denom);
+    eVectsD1(2,0) = abs(gam12)/v1Denom;
 
     // v2
     const double v2Denom = std::sqrt(gam12*gam12 + gam13*gam13 +
@@ -353,8 +354,8 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
   const double e22 = epsD2(1), gam12 = epsD2(3), gam23 = epsD2(5);
 
   // pick given strain state
-  const bool hasE22 = (e22 != 0.0), hasE12 = (gam12 != 0.0),
-    hasE23 = (gam23 != 0.0);
+  const bool hasE22 = (abs(e22) > 1.0e-12), hasE12 = (abs(gam12) > 1.0e-12),
+    hasE23 = (abs(gam23)> 1.0e-12);
   // useful terms
   const double rootE22Gam12Gam23 =
     std::sqrt(e22*e22 + gam12*gam12 + gam23*gam23);
@@ -514,8 +515,8 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
   const double epsilon11 = epsD1(0), gamma12 = epsD1(3), gamma13 = epsD1(4);
 
   // pick given strain state
-  const bool hasE11 = (epsilon11 != 0.0), hasE12 = (gamma12 != 0.0),
-    hasE13 = (gamma13 != 0.0);
+  const bool hasE11 = (std::abs(epsilon11) > 1.0e-12), hasE12 = (std::abs(gamma12) > 1.0e-12),
+	  hasE13 = (std::abs(gamma13) > 1.0e-12);
 
   // Transformation matrix spectral -> Global
   // since I know I have limited \hat{\epsilon_i^{D1+}}
@@ -806,8 +807,8 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   const double epsilon22 = epsD2(1), gamma12 = epsD2(3), gamma23 = epsD2(5);
 
   // pick given strain state
-  const bool hasE22 = (epsilon22 != 0.0), hasE12 = (gamma12 != 0.0),
-    hasE23 = (gamma23 != 0.0);
+  const bool hasE22 = (abs(epsilon22) > 1.0e-12), hasE12 = (abs(gamma12) > 1.0e-12),
+    hasE23 = (abs(gamma23) > 1.0e-12);
 
   // Transformation matrix spectral -> Global
   // since I know I have limited \hat{\epsilon_i^{D2+}}

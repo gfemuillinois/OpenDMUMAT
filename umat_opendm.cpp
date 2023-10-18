@@ -84,7 +84,7 @@ int main(int argc, char* argv[]) {
     const int test = runMatPtTest(modelVal);
     return test;
   } else {
-    const double convVal = taylorCheck(modelVal);
+    const double convVal = numTangCalc(modelVal);
   }
   return 0;
 }
