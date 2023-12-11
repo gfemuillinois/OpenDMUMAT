@@ -11,6 +11,8 @@
 #include "model_opendm4param.hpp"
 
 using std::sqrt;
+using std::cout;
+using std::endl;
 
 /********************************************************************/
 /********************************************************************/
@@ -71,19 +73,17 @@ void OpenDMModel4Param::createTEpsMats() {
   // Transformation matrix
   // +45 transform
   double invSqrt2 = 1.0/std::sqrt(2.0);
-  Teps_p45(0,0) = 0.5; Teps_p45(0,1) = 0.5;
-  Teps_p45(1,0) = 0.5; Teps_p45(1,1) = 0.5;
+  Teps_p45(0,0) = 0.5; Teps_p45(0,1) = 0.5; Teps_p45(0,3) = 0.5; 
+  Teps_p45(1,0) = 0.5; Teps_p45(1,1) = 0.5; Teps_p45(1,3) = -0.5;
   Teps_p45(2,2) = 1.0;
-  Teps_p45(0,3) = 0.5; Teps_p45(1,3) = -0.5;
   Teps_p45(3,0) = -1.0; Teps_p45(3,1) = 1.0;
   Teps_p45(4,4) = invSqrt2; Teps_p45(4,5) = invSqrt2;
   Teps_p45(5,4) = -invSqrt2; Teps_p45(5,5) = invSqrt2;
 
   // -45 transform
-  Teps_n45(0,0) = 0.5; Teps_n45(0,1) = 0.5;
-  Teps_n45(1,0) = 0.5; Teps_n45(1,1) = 0.5;
+  Teps_n45(0,0) = 0.5; Teps_n45(0,1) = 0.5; Teps_n45(0,3) = -0.5;
+  Teps_n45(1,0) = 0.5; Teps_n45(1,1) = 0.5; Teps_n45(1,3) = 0.5;
   Teps_n45(2,2) = 1.0;
-  Teps_n45(0,3) = -0.5; Teps_n45(1,3) = 0.5;
   Teps_n45(3,0) = 1.0; Teps_n45(3,1) = -1.0;
   Teps_n45(4,4) = invSqrt2; Teps_n45(4,5) = -invSqrt2;
   Teps_n45(5,4) = invSqrt2; Teps_n45(5,5) = invSqrt2;
@@ -120,35 +120,34 @@ void OpenDMModel4Param::createHMats() {
   // H4
   // Mode I
   H4 = Matrix6d::Zero();
-  H4(1,1) = hs4(0)*S_p45(1,1);
+  H4(0,0) = hs4(0)*S_p45(0,0);
   // Mode II
   H4(3,3) = hs4(1)*S_p45(3,3);
   // Mode III
-  H4(5,5) = hs4(2)*S_p45(5,5);
+  H4(4,4) = hs4(2)*S_p45(4,4);
   // Transformation induced pieces
-  H4(1,3) = hs4(3)*S_p45(1,3);
-  H4(1,4) = hs4(3)*S_p45(1,4);
-  H4(3,1) = hs4(3)*S_p45(3,1);
-  H4(4,1) = hs4(3)*S_p45(4,1);
+  H4(0,3) = hs4(3)*S_p45(0,3);
+  H4(0,4) = hs4(3)*S_p45(0,4);
+  H4(3,0) = hs4(3)*S_p45(3,0);
+  H4(4,0) = hs4(3)*S_p45(4,0);
   // Bring back to matCoords
   H4 = Teps_n45*H4*Teps_n45.transpose();
 
   // H5
   // Mode I
   H5 = Matrix6d::Zero();
-  H5(1,1) = hs5(0)*S_n45(1,1);
+  H5(0,0) = hs5(0)*S_n45(0,0);
   // Mode II
   H5(3,3) = hs5(1)*S_n45(3,3);
   // Mode III
-  H5(5,5) = hs5(2)*S_n45(5,5);
+  H5(4,4) = hs5(2)*S_n45(4,4);
   // Transformation induced pieces
-  H5(1,3) = hs5(3)*S_n45(1,3);
-  H5(1,4) = hs5(3)*S_n45(1,4);
-  H5(3,1) = hs5(3)*S_n45(3,1);
-  H5(4,1) = hs5(3)*S_n45(4,1);
+  H5(0,3) = hs5(3)*S_n45(0,3);
+  H5(0,4) = hs5(3)*S_n45(0,4);
+  H5(3,0) = hs5(3)*S_n45(3,0);
+  H5(4,0) = hs5(3)*S_n45(4,0);
   // Bring back to matCoords
-  H5 = Teps_n45.transpose()*H5*Teps_p45.transpose();
-
+  H5 = Teps_p45*H5*Teps_p45.transpose();
 }
 /********************************************************************/
 /********************************************************************/
@@ -186,7 +185,7 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
   yMax(2) = y4 > yMaxSave(2) ? y4 : yMaxSave(2);
   yMax(3) = y5 > yMaxSave(3) ? y5 : yMaxSave(3);
   // std::cout << "z = " << z1 << " " << z2 << " "
-  //           << z6 << std::endl;
+            // << z6 << std::endl;
   // std::cout << "yMax = " << yMax << std::endl;
   return yMax;
 }
@@ -245,7 +244,7 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     // v3
     const double v3Denom = std::sqrt(gam12*gam12 +
                                      (e11 + rootE11Gam12Gam13)*(e11 + rootE11Gam12Gam13));
-    eVectsD1(0,2) = (e11 + rootE11Gam12Gam13)*std::abs(gam13)/(gam12*v3Denom);
+    eVectsD1(0,2) = (e11 + rootE11Gam12Gam13)*std::abs(gam12)/(gam12*v3Denom);
     eVectsD1(1,2) = std::abs(gam12)/(v3Denom);
   } else if (hasE11 && !hasE12 && hasE13) {
     // case 3 - E12 is zero
@@ -397,7 +396,7 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
 
     // v3
     const double v3Denom = std::sqrt(gam12*gam12 +
-                                     (e22 + rootE22Gam12Gam23)*(e22 + rootE22Gam12Gam23));
+                                     (e22 - rootE22Gam12Gam23)*(e22 - rootE22Gam12Gam23));
     eVectsD2(0,2) = -(e22 - rootE22Gam12Gam23)*std::abs(gam12)/(gam12*v3Denom);
     eVectsD2(1,2) = std::abs(gam12)/(v3Denom);
   } else if (hasE22 && !hasE12 && hasE23) {
@@ -1085,8 +1084,8 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
 /********************************************************************/
 
 void OpenDMModel4Param::computeSEff(const Vector6d& stressEst,
-                    const VectorXd& dVals,
-                    Matrix6d& Seff) {
+                                    const VectorXd& dVals,
+                                    Matrix6d& Seff) {
   // TODO: stress activation!!!
   Seff = S0 +
     dVals(0)*H1 + dVals(1)*H2 + dVals(2)*H4 + dVals(3)*H5;

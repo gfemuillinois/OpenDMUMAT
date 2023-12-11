@@ -9,6 +9,8 @@
 #include <math.h>
 
 using std::log;
+using std::cout;
+using std::endl;
 
 // declarations 
 /** @brief Runs simple matPt test on strain controlled load
@@ -80,7 +82,7 @@ int main(int argc, char* argv[]) {
     modelVal = 4;
   }
   std::cout << "Using model: " << modelVal << std::endl;
-  if (false) {
+  if (true) {
     const int test = runMatPtTest(modelVal);
     return test;
   } else {
@@ -106,6 +108,7 @@ int runMatPtTest(const int modelVal) {
     dc1, dc2, dc4, dc5;
   // applied load
   double loadApplied;
+  double maxStrain;
   int nInc = 100;
   const bool pythonTest = true;
   if ( !pythonTest ) {
@@ -124,24 +127,24 @@ int runMatPtTest(const int modelVal) {
     pe1 = 1.5; pe2 = pe1; pe4 = pe1; pe5 = pe1;
     dc1 = 2.0; dc2 = dc1; dc4 = dc1; dc5 = dc1;
     // load
-    loadApplied = 10000;
+    maxStrain = 0.003;
   } else {
     // Elastic Properties
     E11 = 335000;       //Young Modulus [MPa]
-    E22 = 180000;       //Young Modulus [MPa]
+    E22 = 160000;       //Young Modulus [MPa]
     E33 = 335000;       //Young Modulus [MPa]
     nu12 = 0.17;         //Poisson ratio
-    nu23 = 0.11;         //Poisson ratio
-    nu13 = 0.11;         //Poisson ratio
+    nu23 = 0.00;         //Poisson ratio
+    nu13 = 0.00;         //Poisson ratio
     G12 = 95360;        //Shear modulus [MPa]
     G23 = 95360;        //Shear modulus [MPa]
     G13 = 95360;        //Shear modulus [MPa]
     
     // Material State Variables
-    hs1_11 = 1.8;        //Damage Effect
+    hs1_11 = 1.2;        //Damage Effect
     hs1_12 = 1.0;        //Damage Effect
     hs1_13 = 1.0;        //Damage Effect
-    hs2_22 = 20.0;        //Damage Effect
+    hs2_22 = 20.0;       //Damage Effect
     hs2_12 = 1.0;        //Damage Effect
     hs2_23 = 1.0;        //Damage Effect
     hs4_11 = 2.0;        //Damage Effect
@@ -156,22 +159,22 @@ int runMatPtTest(const int modelVal) {
     b2 = 0.3;           //Traction / Shear Coupling 2
     b6 = 0.3;           //Traction / Shear Coupling 2
     y01 = 0.3;         //Damage Thresholds 1
-    y02 = 0.02;         //Damage Thresholds 2
+    y02 = 0.04;         //Damage Thresholds 2
     y04 = 0.04;         //Damage Thresholds 1
     y05 = 0.04;         //Damage Thresholds 2
-    yc1 = 10;           //Damage Evolution Celerity 1
-    yc2 = 1;         //Damage Evolution Celerity 2
+    yc1 = 16;           //Damage Evolution Celerity 1
+    yc2 = 0.22;         //Damage Evolution Celerity 2
     yc4 = 10;           //Damage Evolution Celerity 1
     yc5 = 10;          //Damage Evolution Celerity 2
-    pe1 = 1.2;         //Damage Evolution Exponents 1
-    pe2 = 3.2;          //Damage Evolution Exponents 2
+    pe1 = 1.15;         //Damage Evolution Exponents 1
+    pe2 = 2.4;          //Damage Evolution Exponents 2
     pe4 = 1.1;        //Damage Evolution Exponents 1
     pe5 = 1.1;          //Damage Evolution Exponents 2
-    dc1 = 3;          //Damage Saturations 1
-    dc2 = 8;         //Damage Saturations 2
+    dc1 = 5.5;          //Damage Saturations 1
+    dc2 = 1.0;         //Damage Saturations 2
     dc4 = 8;          //Damage Saturations 1
     dc5 = 8;         //Damage Saturations 2
-    loadApplied = 3350;
+    maxStrain = 0.01;
   }
 
   // need to set a bunch of stuff
@@ -190,8 +193,6 @@ int runMatPtTest(const int modelVal) {
   props[0] = E11; props[1] = E22; props[2] = E33;
   props[3] = nu12; props[4] = nu23; props[5] = nu13;
   props[6] = G12; props[7] = G23; props[8] = G13;
-  double statev[17] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   if (modelVal == 2) {
     cmname[6] = '2';
     nprops = 21; // Number of properties
@@ -214,7 +215,7 @@ int runMatPtTest(const int modelVal) {
                             yc1, yc2, yc4, yc5,
                             pe1, pe2, pe4, pe5,
                             dc1, dc2, dc4, dc5};
-    for (int iProp = 0; iProp < 31; iProp++) {
+    for (int iProp = 0; iProp < 33; iProp++) {
       props[9+iProp] = props4Param[iProp];
     }
   }
@@ -245,42 +246,74 @@ int runMatPtTest(const int modelVal) {
   layer = kspt = kstep = kinc = 0;
 
   // setup a loop to call umat each step
-  double stepSize = loadApplied / (nInc);
-  double S11 = 1.0 / E11, S12 = -nu12 / E11, S22 = 1.0 / E22, S44 = 1.0 / G12;
+  double stepSize = maxStrain / (nInc);
   std::ofstream myFile;
   std::string modelNum = std::to_string(modelVal);
-  std::string fileName = "umatTestOut_"+modelNum+".csv";
-  myFile.open(fileName);
-  myFile << "step, strain, stress, d1" << std::endl;
-  myFile << 0 << ", " << 0.0 << ", " << 0.0 << std::endl;
-  const bool tensRun = true;
-  for (int iPull = 1; iPull <= nInc; iPull++) {
-    // Increment dstrain
-    if (tensRun) {
-      dstrain[0] = iPull * stepSize * (S11);
-      // dstrain[1] = iPull * stepSize * (S12);
-    } else {
-      dstrain[0] = iPull * stepSize * (S11 + S12);
-      dstrain[1] = iPull * stepSize * (S12 + S22);
-      dstrain[3] = iPull * stepSize * (S44);
-    }
-    // run model
-    clock_t start = clock();
-    (umat)(stress, statev, ddsdde, &sse, &spd, &scd, &rpl, &ddsddt, &drplde,
-           &drpldt, strain, dstrain, time, &dTime, &temp, &dTemp, &predef,
-           &dpred, cmname, &ndi, &nshr, &ntens, &nstatv, props, &nprops,
-           &coords, &drot, &pnewdt, &celent, &dfgrd0, &dfgrd1, &noel, &npt,
-           &layer, &kspt, &kstep, &kinc);
+  for (int runInt = 0; runInt < 4; ++runInt) {
+    cout << "Running " << runInt << endl;
+    // file for each run
+    std::string runStr = std::to_string(runInt);
+    std::string fileName = "umatTestOut_"+modelNum+"_Run"+runStr+".csv";
+    std::string sep = ", ";
+    myFile.open(fileName);
+    myFile << "step, "
+           << "strain11, strain22, strain12, "
+           << "stress11, stress22, stress12, "
+           << "d1, d2, d4, d5" << std::endl;
+    // zero out SVs for each new load
+    double statev[17] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    for (int iPull = 0; iPull <= nInc; iPull++) {
+      // Increment dstrain
+      switch(runInt) {
+      case 0:
+        // Aligned Tension
+        dstrain[0] = iPull * stepSize;
+        dstrain[1] = 0.0;
+        dstrain[3] = 0.0;
+        break;
+      case 1:
+        // 90 degree tension
+        dstrain[0] = 0.0;
+        dstrain[1] = iPull*stepSize;
+        dstrain[3] = 0.0;
+        break;
+      case 2:
+        // +/- 45 tension
+        dstrain[0] = iPull*0.5*stepSize;
+        dstrain[1] = iPull*0.5*stepSize;
+        dstrain[3] = iPull*stepSize;
+        break;
+      case 3:
+        // +/- 45 tension
+        dstrain[0] = iPull*0.5*stepSize;
+        dstrain[1] = iPull*0.5*stepSize;
+        dstrain[3] = -1.0*iPull*stepSize;
+        break;
+      }
+      // run model
+      clock_t start = clock();
+      (umat)(stress, statev, ddsdde, &sse, &spd, &scd, &rpl, &ddsddt, &drplde,
+             &drpldt, strain, dstrain, time, &dTime, &temp, &dTemp, &predef,
+             &dpred, cmname, &ndi, &nshr, &ntens, &nstatv, props, &nprops,
+             &coords, &drot, &pnewdt, &celent, &dfgrd0, &dfgrd1, &noel, &npt,
+             &layer, &kspt, &kstep, &kinc);
 
-    clock_t end = clock();
-    std::cout << "step = " << iPull << " Time = " << (end - start) << std::endl;
-    std::cout << "Strain: " << (*dstrain) << std::endl;
-    std::cout << "Stress: " << (*stress) << std::endl;
-    myFile << iPull << ", " << dstrain[0] << ", " << stress[0] << ", "
-           << statev[13] << std::endl;
-   }
-   myFile.close();
-   return 0;
+      clock_t end = clock();
+      std::cout << "step = " << iPull << " Time = " << (end - start) << std::endl;
+      std::cout << "Strain: " << std::endl;
+      printVec(dstrain);
+      std::cout << "Stress: " << std::endl;
+      printVec(stress);
+      myFile << iPull << sep
+             << dstrain[0] << sep << dstrain[1] << sep << dstrain[3] << sep
+             << stress[0] << sep << stress[1] << sep << stress[3] << sep 
+             << statev[13] << sep << statev[14] << sep << statev[15] << sep << statev[16] << sep
+             << std::endl;
+    }
+    myFile.close();
+  }
+  return 0;
  }
 /********************************************************************/
 /********************************************************************/
