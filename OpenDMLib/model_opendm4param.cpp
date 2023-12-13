@@ -96,6 +96,9 @@ void OpenDMModel4Param::createTEpsMats() {
 
 void OpenDMModel4Param::createHMats() {
   // Make H's
+  // NOTE: H4 and H5 are left in their respective coordinates and rotated
+  // in computeSEff(). This makes activation more straightforward
+  //
   // H1
   // Mode I
   H1 = Matrix6d::Zero();
@@ -133,9 +136,6 @@ void OpenDMModel4Param::createHMats() {
   H4(0,4) = hs4(3)*S_p45(0,4);
   H4(3,0) = hs4(3)*S_p45(3,0);
   H4(4,0) = hs4(3)*S_p45(4,0);
-  // Bring back to matCoords
-  H4 = Teps_n45*H4*Teps_n45.transpose();
-
   // H5
   // Mode I
   H5 = Matrix6d::Zero();
@@ -149,8 +149,6 @@ void OpenDMModel4Param::createHMats() {
   H5(0,4) = hs5(3)*S_n45(0,4);
   H5(3,0) = hs5(3)*S_n45(3,0);
   H5(4,0) = hs5(3)*S_n45(4,0);
-  // Bring back to matCoords
-  H5 = Teps_p45*H5*Teps_p45.transpose();
 }
 /********************************************************************/
 /********************************************************************/
@@ -1089,9 +1087,43 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
 void OpenDMModel4Param::computeSEff(const Vector6d& stressEst,
                                     const VectorXd& dVals,
                                     Matrix6d& Seff) {
-  // TODO: stress activation!!!
+  // NOTE: this is different from Marcin, Marie, Chaboche
+  // Because we are only deactivating normal stresses
+  // shear damage still exists
+  
+  // stress activation
+  H1(0,0) *= stressAct(stressEst(0));
+  H2(1,1) *= stressAct(stressEst(1));
+  // rotate stress to H4 coord
+  // +45 transform
+  double invSqrt2 = 1.0/sqrt(2.0);
+  Matrix6d TSig = Matrix6d::Zero();
+  TSig(0,0) = 0.5; TSig(0,1) = 0.5; TSig(0,3) = 1.0; 
+  TSig(1,0) = 0.5; TSig(1,1) = 0.5; TSig(1,3) = -1.0;
+  TSig(2,2) = 1.0;
+  TSig(3,0) = -0.5; TSig(3,1) = 0.5;
+  TSig(4,4) = invSqrt2; TSig(4,5) = invSqrt2;
+  TSig(5,4) = -invSqrt2; TSig(5,5) = invSqrt2;
+  Vector6d h4StressEst = TSig*stressEst;
+  H4(0,0) *= stressAct(h4StressEst(0));
+  // Bring back to matCoords
+  Matrix6d globH4 = Teps_n45*H4*Teps_n45.transpose();
+
+  // rotate stress to h5 coord
+  TSig = Matrix6d::Zero();
+  TSig(0,0) = 0.5; TSig(0,1) = 0.5; TSig(0,3) = -1.0; 
+  TSig(1,0) = 0.5; TSig(1,1) = 0.5; TSig(1,3) = 1.0;
+  TSig(2,2) = 1.0;
+  TSig(3,0) = 0.5; TSig(3,1) = -0.5;
+  TSig(4,4) = invSqrt2; TSig(4,5) = -invSqrt2;
+  TSig(5,4) = invSqrt2; TSig(5,5) = invSqrt2;
+  Vector6d h5StressEst = TSig*stressEst;
+  H5(0,0) *= stressAct(h5StressEst(0));
+  // Bring back to matCoords
+  Matrix6d globH5 = Teps_p45*H5*Teps_p45.transpose();
+
   Seff = S0 +
-    dVals(0)*H1 + dVals(1)*H2 + dVals(2)*H4 + dVals(3)*H5;
+    dVals(0)*H1 + dVals(1)*H2 + dVals(2)*globH4 + dVals(3)*globH5;
 }
 /********************************************************************/
 /********************************************************************/
