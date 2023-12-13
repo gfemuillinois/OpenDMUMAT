@@ -73,6 +73,7 @@ void OpenDMModel4Param::unpackParams(double* props) {
 void OpenDMModel4Param::createTEpsMats() {
   // Transformation matrix
   // +45 transform
+  Teps_p45 = Matrix6d::Zero();
   double invSqrt2 = 1.0/std::sqrt(2.0);
   Teps_p45(0,0) = 0.5; Teps_p45(0,1) = 0.5; Teps_p45(0,3) = 0.5; 
   Teps_p45(1,0) = 0.5; Teps_p45(1,1) = 0.5; Teps_p45(1,3) = -0.5;
@@ -82,6 +83,7 @@ void OpenDMModel4Param::createTEpsMats() {
   Teps_p45(5,4) = -invSqrt2; Teps_p45(5,5) = invSqrt2;
 
   // -45 transform
+  Teps_n45 = Matrix6d::Zero();
   Teps_n45(0,0) = 0.5; Teps_n45(0,1) = 0.5; Teps_n45(0,3) = -0.5;
   Teps_n45(1,0) = 0.5; Teps_n45(1,1) = 0.5; Teps_n45(1,3) = 0.5;
   Teps_n45(2,2) = 1.0;
