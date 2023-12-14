@@ -616,8 +616,15 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
     if (eValsD1(1,1) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D1}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal2dEps(0) = -0.5*epsilon11*1.0/rootE11Gam12Gam13 + 0.5;
-      dEVal2dEps(3) = -0.5*gamma12*1.0/rootE11Gam12Gam13;
+      dEVal2dEps(0) = -0.5*epsilon11/rootE11Gam12Gam13 + 0.5;
+      dEVal2dEps(3) = -0.5*gamma12/rootE11Gam12Gam13;
+    }
+    // eVal3
+    if (eValsD1(2,2) != 0.0) {
+      // if this is false
+      // d<\hat{\epsilon_{j}^D1}>+ / d \hat{\epsilon_{j}} == 0.0
+      dEVal3dEps(0) = 0.5*epsilon11/rootE11Gam12Gam13 + 0.5;
+      dEVal3dEps(3) = 0.5*gamma12/rootE11Gam12Gam13;
     }
   } else if (hasE11 && !hasE12 && hasE13) {
     // case 3 - E12 is zero
@@ -630,6 +637,13 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
     dL33dEps(4) = gamma13*pow(eps11Sq + gam13Sq, -0.5)*(-1.0*gam13Sq*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam13Sq)) + 2.0*sqrt(eps11Sq + gam13Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2);
     dL63dEps(4) = gamma13*(4.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 8.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) - 8.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) - 4.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 4.0*pow(eps11Sq + gam13Sq, 3.0))/(sqrt(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0))*sqrt(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0))*(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) - 2.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(eps11Sq + gam13Sq, 3.0)));
 
+    // eVal2
+    if (eValsD1(1,1) != 0.0) {
+      // if this is false
+      // d<\hat{\epsilon_{j}^D1}>+ / d \hat{\epsilon_{j}} == 0.0
+      dEVal2dEps(0) = -0.5*epsilon11/rootE11Gam12Gam13 + 0.5;
+      dEVal2dEps(4) = -0.5*gamma13/rootE11Gam12Gam13;
+    }
     // eVal3
     if (eValsD1(2,2) != 0.0) {
       // if this is false
@@ -637,8 +651,6 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
       dEVal3dEps(0) = 0.5*epsilon11*1.0/rootE11Gam12Gam13 + 0.5;
       dEVal3dEps(4) = 0.5*gamma13*1.0/rootE11Gam12Gam13;
     }
-
-
   } else if (!hasE11 && hasE12 && hasE13) {
     // case 4 - E11 is zero
     // \gamma_{12}
@@ -672,15 +684,15 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
     if (eValsD1(1,1) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D1}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal2dEps(3) = -0.5*gamma12*1.0/rootE11Gam12Gam13;
-      dEVal2dEps(4) = -0.5*gamma13*1.0/rootE11Gam12Gam13;
+      dEVal2dEps(3) = -0.5*gamma12/rootE11Gam12Gam13;
+      dEVal2dEps(4) = -0.5*gamma13/rootE11Gam12Gam13;
     }
     
     if (eValsD1(2,2) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D1}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal3dEps(3) = 0.5*gamma12*1.0/rootE11Gam12Gam13;
-      dEVal3dEps(4) = 0.5*gamma13*1.0/rootE11Gam12Gam13;
+      dEVal3dEps(3) = 0.5*gamma12/rootE11Gam12Gam13;
+      dEVal3dEps(4) = 0.5*gamma13/rootE11Gam12Gam13;
     }
 
   } else if (hasE11 && !hasE12 && !hasE13) {
@@ -871,17 +883,17 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
     if (eValsD2(1,1) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal2dEps(1) = -0.5*epsilon22*1.0/rootE22Gam12Gam23 + 0.5;
-      dEVal2dEps(3) = -0.5*gamma12*1.0/rootE22Gam12Gam23;
-      dEVal2dEps(5) = -0.5*gamma23*1.0/rootE22Gam12Gam23;
+      dEVal2dEps(1) = -0.5*epsilon22/rootE22Gam12Gam23 + 0.5;
+      dEVal2dEps(3) = -0.5*gamma12/rootE22Gam12Gam23;
+      dEVal2dEps(5) = -0.5*gamma23/rootE22Gam12Gam23;
     }
     
     if (eValsD2(2,2) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal3dEps(1) = 0.5*epsilon22*1.0/rootE22Gam12Gam23 + 0.5;
-      dEVal3dEps(3) = 0.5*gamma12*1.0/rootE22Gam12Gam23;
-      dEVal3dEps(5) = 0.5*gamma23*1.0/rootE22Gam12Gam23;
+      dEVal3dEps(1) = 0.5*epsilon22/rootE22Gam12Gam23 + 0.5;
+      dEVal3dEps(3) = 0.5*gamma12/rootE22Gam12Gam23;
+      dEVal3dEps(5) = 0.5*gamma23/rootE22Gam12Gam23;
     }
   } else if (hasE22 && hasE12 && !hasE23) {
     // case 2 - E23 is zero
@@ -899,8 +911,15 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
     if (eValsD2(1,1) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal2dEps(1) = -0.5*epsilon22*1.0/rootE22Gam12Gam23 + 0.5;
-      dEVal2dEps(3) = -0.5*gamma12*1.0/rootE22Gam12Gam23;
+      dEVal2dEps(1) = -0.5*epsilon22/rootE22Gam12Gam23 + 0.5;
+      dEVal2dEps(3) = -0.5*gamma12/rootE22Gam12Gam23;
+    }
+    // eVal3
+    if (eValsD2(2,2) != 0.0) {
+      // if this is false
+      // d<\hat{\epsilon_{j}^D1}>+ / d \hat{\epsilon_{j}} == 0.0
+      dEVal3dEps(1) = 0.5*epsilon22/rootE22Gam12Gam23 + 0.5;
+      dEVal3dEps(3) = 0.5*gamma12/rootE22Gam12Gam23;
     }
   } else if (hasE22 && !hasE12 && hasE23) {
     // case 3 - E12 is zero
@@ -924,15 +943,15 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
     if (eValsD2(1,1) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal3dEps(1) = -0.5*epsilon22*1.0/rootE22Gam12Gam23 + 0.5;
-      dEVal3dEps(5) = -0.5*gamma23*1.0/rootE22Gam12Gam23;
+      dEVal3dEps(1) = -0.5*epsilon22/rootE22Gam12Gam23 + 0.5;
+      dEVal3dEps(5) = -0.5*gamma23/rootE22Gam12Gam23;
     }
     // eVal3
     if (eValsD2(2,2) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal3dEps(1) = 0.5*epsilon22*1.0/rootE22Gam12Gam23 + 0.5;
-      dEVal3dEps(5) = 0.5*gamma23*1.0/rootE22Gam12Gam23;
+      dEVal3dEps(1) = 0.5*epsilon22/rootE22Gam12Gam23 + 0.5;
+      dEVal3dEps(5) = 0.5*gamma23/rootE22Gam12Gam23;
     }
 
 
@@ -963,15 +982,15 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
     if (eValsD2(1,1) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal2dEps(3) = -0.5*gamma12*1.0/rootE22Gam12Gam23;
-      dEVal2dEps(5) = -0.5*gamma23*1.0/rootE22Gam12Gam23;
+      dEVal2dEps(3) = -0.5*gamma12/rootE22Gam12Gam23;
+      dEVal2dEps(5) = -0.5*gamma23/rootE22Gam12Gam23;
     }
     
     if (eValsD2(2,2) != 0.0) {
       // if this is false
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
-      dEVal3dEps(3) = 0.5*gamma12*1.0/rootE22Gam12Gam23;
-      dEVal3dEps(5) = 0.5*gamma23*1.0/rootE22Gam12Gam23;
+      dEVal3dEps(3) = 0.5*gamma12/rootE22Gam12Gam23;
+      dEVal3dEps(5) = 0.5*gamma23/rootE22Gam12Gam23;
     }
 
   } else if (hasE22 && !hasE12 && !hasE23) {
@@ -1078,8 +1097,6 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   // \gamma_{23}
   dEpsD2PlusDEps(5,5) = dL62dEps(5) * eValsD2(1, 1) + dL63dEps(5) * eValsD2(2,2) +
                          L62 * dEVal2dEps(5) + L63 * dEVal3dEps(5);
-
-
 }
 /********************************************************************/
 /********************************************************************/
@@ -1146,8 +1163,11 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   // d(inv(Seff))/d(d) = -inv(Seff)*dSeff/d(d)*inv(Seff)
   Matrix6d dInvSeffdd1 = -1.0*Ceff*H1*Ceff;
   Matrix6d dInvSeffdd2 = -1.0*Ceff*H2*Ceff;
-  Matrix6d dInvSeffdd4 = -1.0*Ceff*H4*Ceff;
-  Matrix6d dInvSeffdd5 = -1.0*Ceff*H5*Ceff;
+  // Get H4 into global coords
+  Matrix6d globH4 = Teps_n45*H4*Teps_n45.transpose();
+  Matrix6d dInvSeffdd4 = -1.0*Ceff*globH4*Ceff;
+  Matrix6d globH5 = Teps_p45*H5*Teps_p45.transpose();
+  Matrix6d dInvSeffdd5 = -1.0*Ceff*globH5*Ceff;
 
   // d(d)/dg
   // TODO: Optimize this?
@@ -1194,7 +1214,7 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   dz1dEpsD1(3) = b(0)*C0(3,3)*epsD1(3);
   dz1dEpsD1(4) = b(1)*C0(4,4)*epsD1(4);
   // z2
-  dz2dEpsD2(0) = C0(1,1)*epsD2(1);
+  dz2dEpsD2(1) = C0(1,1)*epsD2(1);
   dz2dEpsD2(3) = b(0)*C0(3,3)*epsD2(3);
   dz2dEpsD2(5) = b(1)*C0(5,5)*epsD2(5);
   //z6 - epsD1
@@ -1203,12 +1223,12 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   //z6 - epsD2
   dz6dEpsD2(1) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2(3);
   dz6dEpsD2(3) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2(1);
-
+  
   //dEpsD*_i / dEps_j
   Matrix6d dEpsD1dEps = Matrix6d::Zero(), dEpsD2dEps = Matrix6d::Zero(); 
   calcDEpsD1PlusDEps(epsD1, dEpsD1dEps);
   calcDEpsD2PlusDEps(epsD2, dEpsD2dEps);
-  
+ 
   // MatrixVectorProd
   Eigen::Tensor<double,3> dInvSeff1de(6,6,6), dInvSeff2de(6,6,6), dInvSeff4de(6,6,6), dInvSeff5de(6,6,6);
   dInvSeff1de.setZero(); dInvSeff4de.setZero(); dInvSeff4de.setZero(); dInvSeff5de.setZero();
