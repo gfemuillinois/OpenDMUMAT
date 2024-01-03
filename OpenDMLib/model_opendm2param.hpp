@@ -49,7 +49,7 @@ private:
   virtual void computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
 		      const Vector6d& epsStarMac, const VectorXd& yMaxVals,
 		      const VectorXd& gVals,
-		      Matrix6d& matTang) const override;
+		      Matrix6d& matTang) override;
 
   // Matrices to compute Seff
   Matrix6d H1, H2;

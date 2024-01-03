@@ -104,7 +104,7 @@ void OpenDMModel2Param::computeSEff(const Vector6d& stressEst,
 void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
 				       const Vector6d& epsStarMac, const VectorXd& yMaxVals,
 				       const VectorXd& gVals,
-				       Matrix6d& matTang) const {
+				       Matrix6d& matTang) {
   // compute ddsdde
   // material tangent computed analytically
   // Some fancy math in here but it is doable and basically just chain

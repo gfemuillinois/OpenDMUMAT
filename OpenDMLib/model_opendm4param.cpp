@@ -474,9 +474,9 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
     eVectsD2(2,2) = 0.707106781186547;
   } else {
     // no strains, set eVects to global coord
-    eVectsD1(0, 0) = 1.0;
-    eVectsD1(1, 1) = 1.0;
-    eVectsD1(2, 2) = 1.0;
+    eVectsD2(0, 0) = 1.0;
+    eVectsD2(1, 1) = 1.0;
+    eVectsD2(2, 2) = 1.0;
   }
 
 
@@ -1003,7 +1003,7 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
       // d<\hat{\epsilon_{j}^D2}>+ / d \hat{\epsilon_{j}} == 0.0
       dEVal2dEps(1) = 1.0;
     }
- 
+    
   } else if (!hasE22 && hasE12 && !hasE23) {
     // case 6 - E22 and E23 are zero
     // Here again L is constant
@@ -1037,8 +1037,8 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   }
 
   // Full derivs
-  // Row 1
-  // \epsilon_{11}
+  // Row 1 - d \epsilon^{D2+}_{11} / d
+  // \epsilon_{22}
   dEpsD2PlusDEps(0,1) = dL12dEps(1) * eValsD2(1, 1) + dL13dEps(1) * eValsD2(2, 2) +
                          L12 * dEVal2dEps(1) + L13 * dEVal3dEps(1);
   // \gamma_{12}
@@ -1048,7 +1048,7 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   dEpsD2PlusDEps(0,5) = dL12dEps(5) * eValsD2(1, 1) + dL13dEps(5) * eValsD2(2, 2) +
                          L12 * dEVal2dEps(5) + L13 * dEVal3dEps(5);
   // Row 2
-  // \epsilon_{11}
+  // \epsilon_{22}
   dEpsD2PlusDEps(1,1) = dL22dEps(1) * eValsD2(1, 1) + dL23dEps(1) * eValsD2(2, 2) +
                          L22 * dEVal2dEps(1) + L23 * dEVal3dEps(1);
   // \gamma_{12}
@@ -1150,7 +1150,7 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
                                        const Vector6d& epsStarMac,
                                        const VectorXd& yMaxVals,
                                        const VectorXd& gVals,
-                                       Matrix6d& matTang) const {
+                                       Matrix6d& matTang) {
   // compute ddsdde
   // material tangent computed analytically
   // lots of math here, hard parts done in sympy
@@ -1196,75 +1196,105 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
     dg5dy5 = 0.5*1.0/sqrt(yMaxVals(3)*yc(3));
   }
 
-  // dy/dz
-  double dy1dz1 = 1.0, dy1dz6 = -1.0, dy2dz2 = 1.0, dy2dz6 = -1.0;
-  double dy4dz6 = yMaxVals(2) > 0.0 ? 1.0 : 0.0,
-    dy5dz6 = yMaxVals(3) > 0.0 ? 1.0 : 0.0;
-  
   // dz/dEpsD1/D2
   Vector6d epsD1 = Vector6d::Zero(), epsD2 = Vector6d::Zero();
   // [eps11, 0, 0, gam12, gam13, 0]
   epsD1(0) = epsStar(0); epsD1(3) = epsStar(3); epsD1(4) = epsStar(4);
   // [0, eps22, 0, gam12, 0, gam23]
   epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
+  // pos part of strains
+  Vector6d epsD1Plus = Vector6d::Zero(), epsD2Plus = Vector6d::Zero();
+  // TODO: Calculating a second time.. make more efficient
+  posPartStrainD1(epsD1, epsD1Plus);
+  posPartStrainD2(epsD2, epsD2Plus);
+  double z6 = 0.25*(epsD1Plus(0)*C0(0,0)*epsD1Plus(3)
+            + epsD2Plus(1)*C0(1,1)*epsD2Plus(3)
+            + b(2)*C0(3,3)*(epsD1Plus(3)*epsD1Plus(0) + 
+                            epsD2Plus(3)*epsD2Plus(1)));
+  // dy/dz
+  double dy1dz1 = 1.0, dy2dz2 = 1.0;
+  double dy1dz6 = z6 > 0.0 ? -1.0 : 1.0;
+  double dy2dz6 = z6 > 0.0 ? -1.0 : 1.0;
+  double dy4dz6 = z6 > 0.0 ? 1.0 : 0.0,
+    dy5dz6 = z6 < 0.0 ? -1.0 : 0.0;
+  
   Vector6d dz1dEpsD1 = Vector6d::Zero(), dz2dEpsD2 = Vector6d::Zero(),
     dz6dEpsD1 = Vector6d::Zero(), dz6dEpsD2 = Vector6d::Zero();
   // z1
-  dz1dEpsD1(0) = C0(0,0)*epsD1(0);
-  dz1dEpsD1(3) = b(0)*C0(3,3)*epsD1(3);
-  dz1dEpsD1(4) = b(1)*C0(4,4)*epsD1(4);
+  dz1dEpsD1(0) = C0(0,0)*epsD1Plus(0);
+  dz1dEpsD1(3) = b(0)*C0(3,3)*epsD1Plus(3);
+  dz1dEpsD1(4) = b(1)*C0(4,4)*epsD1Plus(4);
   // z2
-  dz2dEpsD2(1) = C0(1,1)*epsD2(1);
-  dz2dEpsD2(3) = b(0)*C0(3,3)*epsD2(3);
-  dz2dEpsD2(5) = b(1)*C0(5,5)*epsD2(5);
+  dz2dEpsD2(1) = C0(1,1)*epsD2Plus(1);
+  dz2dEpsD2(3) = b(0)*C0(3,3)*epsD2Plus(3);
+  dz2dEpsD2(5) = b(1)*C0(5,5)*epsD2Plus(5);
   //z6 - epsD1
-  dz6dEpsD1(0) = 0.25*(C0(0,0) + b(2)*C0(3,3))*epsD1(3);
-  dz6dEpsD1(3) = 0.25*(C0(0,0) + b(2)*C0(3,3))*epsD1(0);
+  dz6dEpsD1(0) = 0.25*(C0(0,0) + b(2)*C0(3,3))*epsD1Plus(3);
+  dz6dEpsD1(3) = 0.25*(C0(0,0) + b(2)*C0(3,3))*epsD1Plus(0);
   //z6 - epsD2
-  dz6dEpsD2(1) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2(3);
-  dz6dEpsD2(3) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2(1);
+  dz6dEpsD2(1) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(3);
+  dz6dEpsD2(3) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(1);
   
   //dEpsD*_i / dEps_j
   Matrix6d dEpsD1dEps = Matrix6d::Zero(), dEpsD2dEps = Matrix6d::Zero(); 
   calcDEpsD1PlusDEps(epsD1, dEpsD1dEps);
   calcDEpsD2PlusDEps(epsD2, dEpsD2dEps);
+  cout << "dEpsD1dEps = \n" << dEpsD1dEps << endl;
+  cout << "dEpsD2dEps = \n" << dEpsD2dEps << endl;
  
   // MatrixVectorProd
-  Eigen::Tensor<double,3> dInvSeff1de(6,6,6), dInvSeff2de(6,6,6), dInvSeff4de(6,6,6), dInvSeff5de(6,6,6);
-  dInvSeff1de.setZero(); dInvSeff4de.setZero(); dInvSeff4de.setZero(); dInvSeff5de.setZero();
   Vector6d dz1dEps = dEpsD1dEps.transpose()*dz1dEpsD1;
   Vector6d dz2dEps = dEpsD2dEps.transpose()*dz2dEpsD2;
-  Vector6d dz6dEps = dEpsD1dEps.transpose()*dz6dEpsD1 + dEpsD2dEps.transpose()*dz6dEpsD2;
+  Vector6d dz6dEps = dEpsD1dEps.transpose()*dz6dEpsD1 +
+    dEpsD2dEps.transpose()*dz6dEpsD2;
+  // d d^m / dEps_k
+  Vector6d dd1dEps = dd1dg1*dg1dy1*(dy1dz1*dz1dEps + dy1dz6*dz6dEps);
+  Vector6d dd2dEps = dd2dg2*dg2dy2*(dy2dz2*dz2dEps + dy2dz6*dz6dEps);
+  Vector6d dd4dEps = dd4dg4*dg4dy4*dy4dz6*dz6dEps;
+  Vector6d dd5dEps = dd5dg5*dg5dy5*dy5dz6*dz6dEps;
   // NOTE: dz1/dEpsD1 -> 6x1, dEpsD1/dEps -> 6x6
   // dEpsD1_i/dEps_j * dz1/dEpsD1_i is what I want
+
+  // 3rd order tensors Seff and Ceff
+  Eigen::Tensor<double,3> dSeffdEps(6,6,6), dCeffdEps(6,6,6);
+  dSeffdEps.setZero(); dCeffdEps.setZero();
+  // d Seff_{ij} / dEps_k
   for (int iInd = 0; iInd < 6; iInd++) {
     for (int jInd = 0; jInd < 6; jInd++) {
       for (int kInd = 0; kInd < 6; kInd++) {
-        dInvSeff1de(iInd,jInd,kInd) = dInvSeffdd1(iInd,jInd)*dd1dg1*
-          dg1dy1*(dy1dz1*dz1dEps(kInd) + dy1dz6*dz6dEps(kInd));
-        dInvSeff2de(iInd,jInd,kInd) = dInvSeffdd2(iInd, jInd)*dd2dg2*
-          dg2dy2*(dy2dz2*dz2dEps(kInd) + dy2dz6*dz6dEps(kInd));
-        dInvSeff4de(iInd,jInd,kInd) = dInvSeffdd4(iInd,jInd)*dd4dg4*
-          dg4dy4*dy4dz6*dz6dEps(kInd);
-        dInvSeff5de(iInd,jInd,kInd) = dInvSeffdd5(iInd,jInd)*dd5dg5*
-          dg5dy5*dy5dz6*dz6dEps(kInd);
+        dSeffdEps(iInd,jInd,kInd) = dd1dEps(kInd)*H1(iInd, jInd) +
+          dd2dEps(kInd)*H2(iInd, jInd) +
+          dd4dEps(kInd)*globH4(iInd, jInd) +
+          dd5dEps(kInd)*globH5(iInd, jInd);
+      }
+    }
+  }
+  // dCeff_{ij} / dEps_k
+  for (int iInd = 0; iInd < 6; iInd++) {
+    for (int jInd = 0; jInd < 6; jInd++) {
+      for (int kInd = 0; kInd < 6; kInd++) {
+        for (int lInd = 0; lInd < 6; lInd++) {
+          for (int mInd = 0; mInd < 6; mInd++) {
+            dCeffdEps(iInd,jInd,kInd) +=
+              -1.0*Ceff(iInd,lInd)*dSeffdEps(lInd,mInd,kInd)*Ceff(mInd,jInd);
+          }
+        }
       }
     }
   }
   
-  // dCeff/de
-  Eigen::Tensor<double,3> dCeffde = dInvSeff1de + dInvSeff2de + dInvSeff4de + dInvSeff5de;
-  // dCeff/de . e
+  // dCeff_{ij}/dEps_k . Eps_j
   Matrix6d dCeffdEpsDotEps = Matrix6d::Zero();
   for (int iInd = 0; iInd < 6; iInd++) {
     for (int jInd = 0; jInd < 6; jInd++) {
       for (int kInd = 0; kInd < 6; kInd++) {
-        dCeffdEpsDotEps(iInd, jInd) += dCeffde(iInd, jInd, kInd)*epsStar(kInd);
+        dCeffdEpsDotEps(iInd, jInd) += dCeffdEps(iInd,kInd,jInd)*epsStar(kInd);
       }
     }
   }
   // Material Tangent = dCeff/de . e + Ceff
-  matTang = dCeffdEpsDotEps + Ceff;
+  // NOTE: as formulated, tangent is not sym, making sym here
+  matTang = 0.5*(dCeffdEpsDotEps + dCeffdEpsDotEps.transpose()) + Ceff;
 }
 /********************************************************************/
 /********************************************************************/

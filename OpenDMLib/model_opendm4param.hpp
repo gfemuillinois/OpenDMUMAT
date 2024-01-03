@@ -75,7 +75,7 @@ private:
   virtual void computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
 		      const Vector6d& epsStarMac, const VectorXd& yMaxVals,
 		      const VectorXd& gVals,
-		      Matrix6d& matTang) const override;
+		      Matrix6d& matTang) override;
   
   // extra vectors for damage params
   VectorXd hs4, hs5;

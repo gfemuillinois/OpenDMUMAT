@@ -113,7 +113,7 @@ private:
   virtual void computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
 			      const Vector6d& epsStarMac, const VectorXd& yMaxVals,
 			      const VectorXd& gVals,
-			      Matrix6d& matTang) const=0;
+			      Matrix6d& matTang)=0;
 
 };
 #endif
