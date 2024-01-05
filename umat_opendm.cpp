@@ -235,7 +235,7 @@ int runOxOxMatPtTest(const int modelVal) {
   double stepSize = maxStrain / (nInc);
   std::ofstream myFile;
   std::string modelNum = std::to_string(modelVal);
-  for (int runInt = 0; runInt < 5; ++runInt) {
+  for (int runInt = 0; runInt < 6; ++runInt) {
     cout << "Running " << runInt << endl;
     // file for each run
     std::string runStr = std::to_string(runInt);
@@ -278,7 +278,24 @@ int runOxOxMatPtTest(const int modelVal) {
         break;
       case 4:
         // Aligned Compression 
-        dstrain[0] = -iPull * stepSize;
+        dstrain[0] = -iPull*stepSize;
+        dstrain[1] = 0.0;
+        dstrain[3] = 0.0;
+        break;
+      case 5:
+        // loadUnload
+        double fact = 0.0;
+        if (iPull < 25) {
+          // load
+          fact = iPull;
+        } else if (iPull <= 50) {
+          // unload
+          fact = 75.0 - 2.0*iPull;
+        } else {
+          // load comp
+          fact = 2.5*iPull - 150;
+        }
+        dstrain[0] = fact*stepSize;
         dstrain[1] = 0.0;
         dstrain[3] = 0.0;
         break;
