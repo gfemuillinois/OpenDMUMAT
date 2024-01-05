@@ -37,19 +37,22 @@ private:
 
   /** @brief calculate yMax_i for given strain
    */
-  virtual VectorXd calcDrivingForces(const Vector6d& epsStarMac) override;
+  virtual VectorXd calcDrivingForces(const Vector6d& epsStar,
+                                     Vector6d& epsD1Plus,
+                                     Vector6d& epsD2Plus) override;
 
   /** @brief calculate damage effect tensor H1, H2
    */
   virtual void computeSEff(const Vector6d& stressEst, const VectorXd& dVals,
-			   Matrix6d& Seff) override;
+               Matrix6d& Seff) override;
 
   /** @brief compute analytical material tangent stiffness
    */
   virtual void computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
-		      const Vector6d& epsStarMac, const VectorXd& yMaxVals,
-		      const VectorXd& gVals,
-		      Matrix6d& matTang) override;
+              const Vector6d& epsD1Plus, const Vector6d& epsD2Plus, 
+              const VectorXd& yMaxVals,
+              const VectorXd& gVals,
+              Matrix6d& matTang) override;
 
   // Matrices to compute Seff
   Matrix6d H1, H2;

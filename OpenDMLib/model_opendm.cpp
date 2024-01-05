@@ -104,7 +104,7 @@ void OpenDMModel::unpackStateVars(double* statev) {
 /********************************************************************/
 
 void OpenDMModel::updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
-				  const VectorXd& dVals, double* statev) {
+                  const VectorXd& dVals, double* statev) {
   // statev[0:8] = Ceff11, C22, C33, C23, C13, C12, C44, C55, C66
   statev[0] = Ceff(0,0);
   statev[1] = Ceff(1,1);
@@ -136,8 +136,8 @@ void OpenDMModel::updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
 /********************************************************************/
 
 void OpenDMModel::setUMATOuts(const Vector6d& sig, const Vector6d& epsStar,
-			      const Matrix6d& matTang, double* stress,
-			      double* ddsdde, double* sse) const {
+                  const Matrix6d& matTang, double* stress,
+                  double* ddsdde, double* sse) const {
   // assign vector positions to pointer outs
   //
   for (int iRow = 0; iRow < 6; iRow++) {
@@ -158,13 +158,15 @@ void OpenDMModel::setUMATOuts(const Vector6d& sig, const Vector6d& epsStar,
 /********************************************************************/
 
 void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
-			   double* statev, double* ddsdde, double* sse,
-			   double* spd, double* scd) {
+               double* statev, double* ddsdde, double* sse,
+               double* spd, double* scd) {
   // Calculate y, g, d, Ceff, upStress, matTang
   //
 
-  // epsStar = eps - epsTh (formality for now)
-  Vector6d epsStar, epsStarMac;
+  // epsStar = eps - epsTh (Abq send these by default)
+  Vector6d epsStar; 
+  // Strains specific to damage modes
+  Vector6d epsD1Plus = Vector6d::Zero(), epsD2Plus = Vector6d::Zero();
   // Update strain
   for (int i = 0; i < 6; i++) {
     // NO THERMAL STRAIN AT THIS POINT!!!
@@ -173,17 +175,11 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   // Estimate stress for activation functions
   Vector6d stressEst = CeffOld*epsStar;
   
-  // Macauley strains
-  epsStarMac = epsStar;
-  // Only check normal strains TODO: Need to check all in 4Param
-  for (int iRow = 0; iRow < 3; iRow++) {
-    epsStarMac(iRow) = macaulayBracketPlus(epsStar(iRow));
-  }
-  // update yMax attribute values here
+    // update yMax attribute values here
   VectorXd yMaxVals(nDamageVars),
     gVals(nDamageVars), dVals(nDamageVars);
   
-  yMaxVals = calcDrivingForces(epsStarMac);
+  yMaxVals = calcDrivingForces(epsStar, epsD1Plus, epsD2Plus);
   // get g and d values
   calcGVals(yMaxVals, gVals);
   calcDVals(gVals, dVals);
@@ -199,8 +195,8 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
 
   // calcTangent
   Matrix6d matTang = Matrix6d::Zero();
-  computeMatTang(Ceff, epsStar, epsStarMac, yMaxVals,
-		 gVals, matTang);
+  computeMatTang(Ceff, epsStar, epsD1Plus, epsD2Plus, yMaxVals,
+         gVals, matTang);
 
   // Update stateVars (yMax, Ceff)
   updateStateVars(yMaxVals, Ceff, dVals, statev);

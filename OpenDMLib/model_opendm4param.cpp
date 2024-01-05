@@ -9,11 +9,17 @@
 #include <iostream>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include "model_opendm4param.hpp"
+#include <cmath>
+
+// macro for zero strains
+#define effZeroStrain 1.0e-7
 
 using std::sqrt;
 using std::cout;
 using std::endl;
 using std::abs;
+using std::pow;
+using std::isnan;
 
 /********************************************************************/
 /********************************************************************/
@@ -30,12 +36,6 @@ OpenDMModel4Param::OpenDMModel4Param(double* props, int* nprops,
   
   // Make H matrices without stress activation
   createHMats();
-
-  // initialize spectral form work areas 
-  // set in posPartStrainD*, reused in dEpsD*PlusDEps
-  eValsD1 = Matrix3d::Zero(); eValsD2 = Matrix3d::Zero();
-  eVectsD1 = Matrix3d::Zero();
-  eVectsD2 = Matrix3d::Zero();
 }
 /********************************************************************/
 /********************************************************************/
@@ -153,10 +153,11 @@ void OpenDMModel4Param::createHMats() {
 /********************************************************************/
 /********************************************************************/
 
-VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
+VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar,
+                                              Vector6d& epsD1Plus,
+                                              Vector6d& epsD2Plus) {
   // EQ 46-55 in OpenDM-4 Parameter Damage CLT doc
-  Vector6d epsD1 = Vector6d::Zero(), epsD1Plus = Vector6d::Zero(),
-    epsD2 = Vector6d::Zero(), epsD2Plus = Vector6d::Zero();
+  Vector6d epsD1 = Vector6d::Zero(), epsD2 = Vector6d::Zero();
   epsD1(0) = epsStar(0); epsD1(3) = epsStar(3); epsD1(4) = epsStar(4);
   epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
   posPartStrainD1(epsD1, epsD1Plus);
@@ -186,8 +187,8 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
   yMax(2) = y4 > yMaxSave(2) ? y4 : yMaxSave(2);
   yMax(3) = y5 > yMaxSave(3) ? y5 : yMaxSave(3);
   // std::cout << "z = " << z1 << " " << z2 << " "
-            // << z6 << std::endl;
-  // std::cout << "yMax = " << yMax << std::endl;
+  //           << z6 << std::endl;
+  // std::cout << "yMax = " << yMax(0) << " " << yMax(1) << std::endl;
   return yMax;
 }
 /********************************************************************/
@@ -196,12 +197,15 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar) {
 void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
                                         Vector6d& epsD1Plus) {
 
+  // initialize work areas
+  eValsD1 = Matrix3d::Zero();
+  eVectsD1 = Matrix3d::Zero();
   // get strains
   const double e11 = epsD1(0), gam12 = epsD1(3), gam13 = epsD1(4);
 
   // pick given strain state
-  const bool hasE11 = (abs(e11) > 1.0e-12), hasE12 = (abs(gam12) > 1.0e-12),
-    hasE13 = (abs(gam13) > 1.0e-12);
+  const bool hasE11 = (abs(e11) > effZeroStrain), hasE12 = (abs(gam12) > effZeroStrain),
+    hasE13 = (abs(gam13) > effZeroStrain);
   // useful terms
   const double rootE11Gam12Gam13 =
     std::sqrt(e11*e11 + gam12*gam12 + gam13*gam13);
@@ -335,12 +339,12 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
   Matrix3d epsilonPlus = eVectsD1*eValsD1*eVectsD1.transpose();
 
   // Put back into Abaqus notation
-  epsD1Plus(0) = epsilonPlus(0,0);
-  epsD1Plus(1) = epsilonPlus(1,1);
-  epsD1Plus(2) = epsilonPlus(2,2);
-  epsD1Plus(3) = 2.0*epsilonPlus(0,1);
-  epsD1Plus(4) = 2.0*epsilonPlus(0,2);
-  epsD1Plus(5) = 2.0*epsilonPlus(1,2);
+  epsD1Plus(0) = abs(epsilonPlus(0,0)) > effZeroStrain ? epsilonPlus(0,0) : 0.0;
+  epsD1Plus(1) = abs(epsilonPlus(1,1)) > effZeroStrain ? epsilonPlus(1,1) : 0.0;
+  epsD1Plus(2) = abs(epsilonPlus(2,2)) > effZeroStrain ? epsilonPlus(2,2) : 0.0;
+  epsD1Plus(3) = abs(epsilonPlus(0,1)) > effZeroStrain? 2.0*epsilonPlus(0, 1) : 0.0;
+  epsD1Plus(4) = abs(epsilonPlus(0,2)) > effZeroStrain? 2.0*epsilonPlus(0, 2) : 0.0;
+  epsD1Plus(5) = abs(epsilonPlus(1,2)) > effZeroStrain? 2.0*epsilonPlus(1, 2) : 0.0;
 }
 
 /********************************************************************/
@@ -349,12 +353,16 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
 void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
                                         Vector6d& epsD2Plus) {
 
+  // initialize work areas
+  eValsD2 = Matrix3d::Zero();
+  eVectsD2 = Matrix3d::Zero();
+
   // get strains
   const double e22 = epsD2(1), gam12 = epsD2(3), gam23 = epsD2(5);
 
   // pick given strain state
-  const bool hasE22 = (abs(e22) > 1.0e-12), hasE12 = (abs(gam12) > 1.0e-12),
-    hasE23 = (abs(gam23)> 1.0e-12);
+  const bool hasE22 = (abs(e22) > effZeroStrain), hasE12 = (abs(gam12) > effZeroStrain),
+    hasE23 = (abs(gam23)> effZeroStrain);
   // useful terms
   const double rootE22Gam12Gam23 =
     std::sqrt(e22*e22 + gam12*gam12 + gam23*gam23);
@@ -489,12 +497,12 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
   Matrix3d epsilonPlus = eVectsD2*eValsD2*eVectsD2.transpose();
 
   // Put back into Abaqus notation
-  epsD2Plus(0) = epsilonPlus(0,0);
-  epsD2Plus(1) = epsilonPlus(1,1);
-  epsD2Plus(2) = epsilonPlus(2,2);
-  epsD2Plus(3) = 2.0*epsilonPlus(0,1);
-  epsD2Plus(4) = 2.0*epsilonPlus(0,2);
-  epsD2Plus(5) = 2.0*epsilonPlus(1,2);
+  epsD2Plus(0) = abs(epsilonPlus(0,0)) > effZeroStrain ? epsilonPlus(0,0) : 0.0;
+  epsD2Plus(1) = abs(epsilonPlus(1,1)) > effZeroStrain ? epsilonPlus(1,1) : 0.0;
+  epsD2Plus(2) = abs(epsilonPlus(2,2)) > effZeroStrain ? epsilonPlus(2,2) : 0.0;
+  epsD2Plus(3) = abs(epsilonPlus(0,1)) > effZeroStrain? 2.0*epsilonPlus(0, 1) : 0.0;
+  epsD2Plus(4) = abs(epsilonPlus(0,2)) > effZeroStrain? 2.0*epsilonPlus(0, 2) : 0.0;
+  epsD2Plus(5) = abs(epsilonPlus(1,2)) > effZeroStrain? 2.0*epsilonPlus(1, 2) : 0.0;
 }
 /********************************************************************/
 /********************************************************************/
@@ -514,8 +522,8 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
   const double epsilon11 = epsD1(0), gamma12 = epsD1(3), gamma13 = epsD1(4);
 
   // pick given strain state
-  const bool hasE11 = (std::abs(epsilon11) > 1.0e-12), hasE12 = (std::abs(gamma12) > 1.0e-12),
-	  hasE13 = (std::abs(gamma13) > 1.0e-12);
+  const bool hasE11 = (std::abs(epsilon11) > effZeroStrain), hasE12 = (std::abs(gamma12) > effZeroStrain),
+      hasE13 = (std::abs(gamma13) > effZeroStrain);
 
   // Transformation matrix spectral -> Global
   // since I know I have limited \hat{\epsilon_i^{D1+}}
@@ -818,8 +826,8 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   const double epsilon22 = epsD2(1), gamma12 = epsD2(3), gamma23 = epsD2(5);
 
   // pick given strain state
-  const bool hasE22 = (abs(epsilon22) > 1.0e-12), hasE12 = (abs(gamma12) > 1.0e-12),
-    hasE23 = (abs(gamma23) > 1.0e-12);
+  const bool hasE22 = (abs(epsilon22) > effZeroStrain), hasE12 = (abs(gamma12) > effZeroStrain),
+    hasE23 = (abs(gamma23) > effZeroStrain);
 
   // Transformation matrix spectral -> Global
   // since I know I have limited \hat{\epsilon_i^{D2+}}
@@ -1147,7 +1155,8 @@ void OpenDMModel4Param::computeSEff(const Vector6d& stressEst,
 
 void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
                                        const Vector6d& epsStar,
-                                       const Vector6d& epsStarMac,
+                                       const Vector6d& epsD1Plus,
+                                       const Vector6d& epsD2Plus,
                                        const VectorXd& yMaxVals,
                                        const VectorXd& gVals,
                                        Matrix6d& matTang) {
@@ -1160,14 +1169,9 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   // (sum for each d_i)
   //
 
-  // d(inv(Seff))/d(d) = -inv(Seff)*dSeff/d(d)*inv(Seff)
-  Matrix6d dInvSeffdd1 = -1.0*Ceff*H1*Ceff;
-  Matrix6d dInvSeffdd2 = -1.0*Ceff*H2*Ceff;
-  // Get H4 into global coords
+  // Get H4&5 into global coords
   Matrix6d globH4 = Teps_n45*H4*Teps_n45.transpose();
-  Matrix6d dInvSeffdd4 = -1.0*Ceff*globH4*Ceff;
   Matrix6d globH5 = Teps_p45*H5*Teps_p45.transpose();
-  Matrix6d dInvSeffdd5 = -1.0*Ceff*globH5*Ceff;
 
   // d(d)/dg
   // TODO: Optimize this?
@@ -1179,7 +1183,7 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
     *exp(-1.0*pow(gVals(2),pe(2)));
   double dd5dg5 = pe(3)*dc(3)*pow(gVals(3), pe(3) - 1.0)
     *exp(-1.0*pow(gVals(3),pe(3)));
-
+  
   // dg/dy
   // if yMax < yMaxOld, yMax = yMaxOld, dg/dy = 0.0
   double dg1dy1 = 0.0, dg2dy2 = 0.0, dg4dy4 = 0.0, dg5dy5 = 0.0;
@@ -1197,20 +1201,11 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   }
 
   // dz/dEpsD1/D2
-  Vector6d epsD1 = Vector6d::Zero(), epsD2 = Vector6d::Zero();
-  // [eps11, 0, 0, gam12, gam13, 0]
-  epsD1(0) = epsStar(0); epsD1(3) = epsStar(3); epsD1(4) = epsStar(4);
-  // [0, eps22, 0, gam12, 0, gam23]
-  epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
-  // pos part of strains
-  Vector6d epsD1Plus = Vector6d::Zero(), epsD2Plus = Vector6d::Zero();
-  // TODO: Calculating a second time.. make more efficient
-  posPartStrainD1(epsD1, epsD1Plus);
-  posPartStrainD2(epsD2, epsD2Plus);
   double z6 = 0.25*(epsD1Plus(0)*C0(0,0)*epsD1Plus(3)
             + epsD2Plus(1)*C0(1,1)*epsD2Plus(3)
             + b(2)*C0(3,3)*(epsD1Plus(3)*epsD1Plus(0) + 
                             epsD2Plus(3)*epsD2Plus(1)));
+
   // dy/dz
   double dy1dz1 = 1.0, dy2dz2 = 1.0;
   double dy1dz6 = z6 > 0.0 ? -1.0 : 1.0;
@@ -1234,19 +1229,17 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   //z6 - epsD2
   dz6dEpsD2(1) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(3);
   dz6dEpsD2(3) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(1);
-  
   //dEpsD*_i / dEps_j
   Matrix6d dEpsD1dEps = Matrix6d::Zero(), dEpsD2dEps = Matrix6d::Zero(); 
-  calcDEpsD1PlusDEps(epsD1, dEpsD1dEps);
-  calcDEpsD2PlusDEps(epsD2, dEpsD2dEps);
-  cout << "dEpsD1dEps = \n" << dEpsD1dEps << endl;
-  cout << "dEpsD2dEps = \n" << dEpsD2dEps << endl;
+  calcDEpsD1PlusDEps(epsD1Plus, dEpsD1dEps);
+  calcDEpsD2PlusDEps(epsD2Plus, dEpsD2dEps);
  
   // MatrixVectorProd
   Vector6d dz1dEps = dEpsD1dEps.transpose()*dz1dEpsD1;
   Vector6d dz2dEps = dEpsD2dEps.transpose()*dz2dEpsD2;
   Vector6d dz6dEps = dEpsD1dEps.transpose()*dz6dEpsD1 +
     dEpsD2dEps.transpose()*dz6dEpsD2;
+
   // d d^m / dEps_k
   Vector6d dd1dEps = dd1dg1*dg1dy1*(dy1dz1*dz1dEps + dy1dz6*dz6dEps);
   Vector6d dd2dEps = dd2dg2*dg2dy2*(dy2dz2*dz2dEps + dy2dz6*dz6dEps);

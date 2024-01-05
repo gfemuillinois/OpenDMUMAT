@@ -23,7 +23,7 @@ class OpenDMModel {
 public:
   // Constructor
   OpenDMModel(double* props, int* nprops, double* statev, int* nstatv,
-	      const int nDamageVars);
+          const int nDamageVars);
 
   // default destrutor
   virtual ~OpenDMModel()=default;
@@ -37,8 +37,8 @@ public:
   /** @brief run the openDM model for a given UMAT call
    */
   void runModel(double* strain, double* dstrain, double* stress,
-		double* statev, double* ddsdde, double* sse,
-		double* spd, double* scd);
+        double* statev, double* ddsdde, double* sse,
+        double* spd, double* scd);
 
 protected:
   
@@ -79,13 +79,13 @@ private:
   /** @brief update statevars ater run
    */
   void updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
-		       const VectorXd& dVals, double* statev);
+               const VectorXd& dVals, double* statev);
 
   /** @brief set outputs from UMAT
    */
   void setUMATOuts(const Vector6d& sig, const Vector6d& epsStar,
-		   const Matrix6d& matTang, double* stress,
-		   double* ddsdde, double* sse) const;
+           const Matrix6d& matTang, double* stress,
+           double* ddsdde, double* sse) const;
 
   /** @brief calculate g_i for given strain
    */
@@ -101,19 +101,22 @@ private:
 
   /** @brief calculate yMax_i for given strain
    */
-  virtual VectorXd calcDrivingForces(const Vector6d& epsStarMac)=0;
+  virtual VectorXd calcDrivingForces(const Vector6d& epsStar,
+                                     Vector6d& epsD1Plus,
+                                     Vector6d& epsD2Plus)=0;
 
   /** @brief calculate damage effect tensor H1, H2
    */
   virtual void computeSEff(const Vector6d& stressEst, const VectorXd& dVals,
-		Matrix6d& Seff) =0;
+        Matrix6d& Seff) =0;
 
   /** @brief compute analytical material tangent stiffness
    */
   virtual void computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
-			      const Vector6d& epsStarMac, const VectorXd& yMaxVals,
-			      const VectorXd& gVals,
-			      Matrix6d& matTang)=0;
+                  const Vector6d& epsD1Plus, const Vector6d& epsD2Plus, 
+                  const VectorXd& yMaxVals,
+                  const VectorXd& gVals,
+                  Matrix6d& matTang)=0;
 
 };
 #endif

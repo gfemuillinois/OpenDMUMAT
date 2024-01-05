@@ -12,7 +12,7 @@
 /********************************************************************/
 
 OpenDMModel2Param::OpenDMModel2Param(double* props, int* nprops,
-				     double* statev, int* nstatv)
+                     double* statev, int* nstatv)
     : OpenDMModel(props, nprops, statev, nstatv, 2 /*nDamageVals*/)
 {
   // Set OpenDM model params
@@ -63,15 +63,28 @@ void OpenDMModel2Param::createH1H2() {
 /********************************************************************/
 /********************************************************************/
 
-VectorXd OpenDMModel2Param::calcDrivingForces(const Vector6d& epsStarMac) {
+VectorXd OpenDMModel2Param::calcDrivingForces(const Vector6d& epsStar,
+                                              Vector6d& epsD1Plus,
+                                              Vector6d& epsD2Plus) {
+  // NOTE: epsD1Plus is just strains with normal comps 
+  // put through macBrack. 
+  // epsD2Plus is NOT USED in 2 param model
+
+  // Macauley strains
+  epsD1Plus = epsStar;
+  // Only check normal strains 
+  for (int iRow = 0; iRow < 3; iRow++) {
+    epsD1Plus(iRow) = macaulayBracketPlus(epsStar(iRow));
+  }
+
   // EQ 32 in OpenDM-Simple CLT doc
   double E11 = 1.0/S0(0,0);
   double E22 = 1.0/S0(1,1);
   double G12 = C0(3,3);
 
-  double e11 = epsStarMac(0);
-  double e22 = epsStarMac(1);
-  double g12 = epsStarMac(3);
+  double e11 = epsD1Plus(0);
+  double e22 = epsD1Plus(1);
+  double g12 = epsD1Plus(3);
   
   double y1 = 0.5*(E11*e11*e11 + b(0)*G12*g12*g12);
   double y2 = 0.5*(E22*e22*e22 + b(1)*G12*g12*g12);
@@ -85,8 +98,8 @@ VectorXd OpenDMModel2Param::calcDrivingForces(const Vector6d& epsStarMac) {
 /********************************************************************/
 
 void OpenDMModel2Param::computeSEff(const Vector6d& stressEst,
-				    const VectorXd& dVals,
-				    Matrix6d& Seff) {
+                    const VectorXd& dVals,
+                    Matrix6d& Seff) {
   // stress activation
   // H1
   // Mode I
@@ -102,9 +115,10 @@ void OpenDMModel2Param::computeSEff(const Vector6d& stressEst,
 /********************************************************************/
 
 void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& epsStar,
-				       const Vector6d& epsStarMac, const VectorXd& yMaxVals,
-				       const VectorXd& gVals,
-				       Matrix6d& matTang) {
+                       const Vector6d& epsD1Plus, const Vector6d& epsD2Plus, 
+                       const VectorXd& yMaxVals,
+                       const VectorXd& gVals,
+                       Matrix6d& matTang) {
   // compute ddsdde
   // material tangent computed analytically
   // Some fancy math in here but it is doable and basically just chain
@@ -136,8 +150,10 @@ void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& eps
   // dy/de
   // epsStarMac norm strains are zero if compressive
   Vector6d dy1de = Vector6d::Zero(), dy2de = Vector6d::Zero();
-  dy1de(0) = 1.0/S0(0,0)*epsStarMac(0); dy1de(3) = b(0)*1.0/S0(3,3)*epsStarMac(3);
-  dy2de(1) = 1.0/S0(1,1)*epsStarMac(1); dy2de(3) = b(1)*1.0/S0(3,3)*epsStarMac(3);
+  dy1de(0) = 1.0/S0(0,0)*epsD1Plus(0); 
+  dy1de(3) = b(0)*1.0/S0(3,3)*epsD1Plus(3);
+  dy2de(1) = 1.0/S0(1,1)*epsD1Plus(1); 
+  dy2de(3) = b(1)*1.0/S0(3,3)*epsD1Plus(3);
 
   // Combine scalar derivs to vect
   Vector6d dd1de = Vector6d::Zero(), dd2de = Vector6d::Zero();
