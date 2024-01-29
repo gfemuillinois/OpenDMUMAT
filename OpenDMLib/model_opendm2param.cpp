@@ -18,6 +18,9 @@ OpenDMModel2Param::OpenDMModel2Param(double* props, int* nprops,
   // Set OpenDM model params
   unpackParams(props);
 
+  // set stateVars
+  unpackStateVars(statev);
+
   // Build base H1 & H2
   createH1H2();
 

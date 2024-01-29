@@ -17,7 +17,7 @@ extern "C" {
     if ((*nprops) == 21 && (*nstatv) == 13 ) {
       // create 2 parameter damage model
       p_openDMModel = new OpenDMModel2Param(props, nprops, statev, nstatv);
-    } else if ((*nprops) == 42 && (*nstatv) == 17) {
+    } else if ((*nprops) == 42 && (*nstatv) == 29) {
       // create 4 parameter model
       p_openDMModel = new OpenDMModel4Param(props, nprops, statev, nstatv);
     }

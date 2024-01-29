@@ -25,11 +25,14 @@ using std::isnan;
 /********************************************************************/
 
 OpenDMModel4Param::OpenDMModel4Param(double* props, int* nprops,
-                     double* statev, int* nstatv)
+                                     double* statev, int* nstatv)
     : OpenDMModel(props, nprops, statev, nstatv, 4 /*nDamageVals*/)
 {
   // Set OpenDM model params
   unpackParams(props);
+
+  // set stateVars
+  unpackStateVars(statev);
 
   // Make transformation matrices for shear params
   createTEpsMats();
@@ -66,6 +69,88 @@ void OpenDMModel4Param::unpackParams(double* props) {
   // std::cout << "pe = " << pe << std::endl;
   dc = Eigen::Map<Eigen::VectorXd>(props+38,4);
   // std::cout << "dc = " << dc << std::endl;
+}
+/********************************************************************/
+/********************************************************************/
+
+void OpenDMModel4Param::unpackStateVars(double* statev) {
+  // statev[0:20] = 
+  CeffOld = Matrix6d::Zero();
+  // row 1
+  CeffOld(0,0) = statev[0]; CeffOld(0,1) = statev[1]; CeffOld(0,2) = statev[2];
+  CeffOld(0,3) = statev[3]; CeffOld(0,4) = statev[4]; CeffOld(0,5) = statev[5];
+  // row 2
+  CeffOld(1,0) = statev[1]; CeffOld(1,1) = statev[6]; CeffOld(1,2) = statev[7];
+  CeffOld(1,3) = statev[8]; CeffOld(1,4) = statev[9]; CeffOld(1,5) = statev[10];
+  // row 3
+  CeffOld(2,0) = statev[2]; CeffOld(2,1) = statev[7]; CeffOld(2,2) = statev[11];
+  CeffOld(2,3) = statev[12]; CeffOld(2,4) = statev[13]; CeffOld(2,5) = statev[14];
+  // row 4
+  CeffOld(3,0) = statev[3]; CeffOld(3,1) = statev[8]; CeffOld(3,2) = statev[12];
+  CeffOld(3,3) = statev[15]; CeffOld(3,4) = statev[16]; CeffOld(3,5) = statev[17];
+  // row 5
+  CeffOld(4,0) = statev[4]; CeffOld(4,1) = statev[9]; CeffOld(4,2) = statev[13];
+  CeffOld(4,3) = statev[16]; CeffOld(4,4) = statev[18]; CeffOld(4,5) = statev[19];
+  // row 6
+  CeffOld(5,0) = statev[5]; CeffOld(5,1) = statev[10]; CeffOld(5,2) = statev[14];
+  CeffOld(5,3) = statev[17]; CeffOld(5,4) = statev[19]; CeffOld(5,5) = statev[20];
+
+  // statev[21:21+nDamageVars] = yMaxOld
+  yMaxSave.resize(nDamageVars);
+  for (int iY = 0; iY < nDamageVars; iY++) {
+    yMaxSave(iY) = statev[21+iY];
+    if (yMaxSave(iY) < 0.0) {
+      yMaxSave(iY) = 0.0;
+    }
+  }
+  // I do not need to unpack old damage vars...
+
+}
+/********************************************************************/
+/********************************************************************/
+
+void OpenDMModel4Param::updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
+                                        const VectorXd& dVals, double* statev) {
+  // statev[0:20] = Ceff11, C12, C13, C14, C15, C16,
+  //                C22, C23, C24, C25, C26
+  //                C33, C34, C35, C36
+  //                C44, C45, C46
+  //                C55, C56
+  //                C66
+  // row 1
+  statev[0] = Ceff(0,0); statev[1] = Ceff(0,1); statev[2] = Ceff(0,2);
+  statev[3] = Ceff(0,3); statev[4] = Ceff(0,4); statev[5] = Ceff(0,5);
+  // row 2
+  statev[6] = Ceff(1,1); statev[7] = Ceff(1,2); statev[8] = Ceff(1,3);
+  statev[9] = Ceff(1,4); statev[10] = Ceff(1,5);
+  // row 3
+  statev[11] = Ceff(2,2); statev[12] = Ceff(2,3);
+  statev[13] = Ceff(2,4); statev[14] = Ceff(2,5);
+  // row 4
+  statev[15] = Ceff(3,3); statev[16] = Ceff(3,4); statev[17] = Ceff(3,5);
+  // row 5
+  statev[18] = Ceff(4,4); statev[19] = Ceff(4,5);
+  // row 6
+  statev[20] = Ceff(5,5);
+
+  // statev[21:21+nDamageVars] = y1MaxOld, y2MaxOld,...
+  // Start at statev[21] and assign from here
+  for (int iPos = 0; iPos < 2*nDamageVars; iPos++) {
+    if (iPos < nDamageVars) {
+      // check yMax
+      if (yMax(iPos) > yMaxSave(iPos)) {
+        yMaxSave(iPos) = yMax(iPos);
+      }
+      if (yMaxSave(iPos) < 0.0) {
+        throw std::runtime_error("SAVING y < 0!!!");
+      }
+      // update yMax Values
+      statev[21+iPos] = yMaxSave(iPos);
+    } else {
+      // update damage vars
+      statev[21+iPos] = dVals(iPos - nDamageVars);
+    }
+  }
 }
 /********************************************************************/
 /********************************************************************/
@@ -187,7 +272,7 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar,
   yMax(2) = y4 > yMaxSave(2) ? y4 : yMaxSave(2);
   yMax(3) = y5 > yMaxSave(3) ? y5 : yMaxSave(3);
   // std::cout << "z = " << z1 << " " << z2 << " "
-  //           << z6 << std::endl;
+            // << z6 << std::endl;
   // std::cout << "yMax = " << yMax(0) << " " << yMax(1) << std::endl;
   return yMax;
 }
@@ -196,6 +281,22 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar,
 
 void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
                                         Vector6d& epsD1Plus) {
+  // This function computes the positive part of the D1 strain tensor
+  // epsD1+_i = L_{ij} <\hat{epsD1}_j>_+
+  //
+  // \hat{epsD1} are the eigenvalues of epsD1
+  //
+  // L_{ij} is related to eigenvalues of epsD1
+  // 
+  // Steps:
+  // 1) compute eigenvalues and eigenvectors
+  // 2) MacBracket eigenvalues
+  // 3) transform back to global coords: epsD1 = Q_{ki} \hat{epsD1}_{kl} Q_{lj}
+  //           | eV1.x1 eV1.x2 eV1.x3 |
+  //       Q = | eV2.x1 eV2.x2 eV2.x3 |
+  //           | eV3.x1 eV3.x2 eV3.x3 |
+  // NOTE: eVals and eVects are SAVED and used later!!!
+  // 
 
   // initialize work areas
   eValsD1 = Matrix3d::Zero();
@@ -216,21 +317,21 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
 
     // v1
     const double v1Denom = sqrt(gam12*gam12 + gam13*gam13);
-    eVectsD1(1,0) = -gam13*abs(gam12)/(gam12*v1Denom);
-    eVectsD1(2,0) = abs(gam12)/v1Denom;
+    eVectsD1(0,1) = -gam13*abs(gam12)/(gam12*v1Denom);
+    eVectsD1(0,2) = abs(gam12)/v1Denom;
 
     // v2
     const double v2Denom = std::sqrt(gam12*gam12 + gam13*gam13 +
                                      (e11 - rootE11Gam12Gam13)*(e11 - rootE11Gam12Gam13));
-    eVectsD1(0,1) = (e11 - rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v2Denom);
+    eVectsD1(1,0) = (e11 - rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v2Denom);
     eVectsD1(1,1) = gam12*std::abs(gam13)/(gam13*v2Denom);
-    eVectsD1(2,1) = std::abs(gam13)/v2Denom;
+    eVectsD1(1,2) = std::abs(gam13)/v2Denom;
 
     // v3
     const double v3Denom = std::sqrt(gam12*gam12 + gam13*gam13 +
                                      (e11 + rootE11Gam12Gam13)*(e11 + rootE11Gam12Gam13));
-    eVectsD1(0,2) = (e11 + rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v3Denom);
-    eVectsD1(1,2) = gam12*std::abs(gam13)/(gam13*v3Denom);
+    eVectsD1(2,0) = (e11 + rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v3Denom);
+    eVectsD1(2,1) = gam12*std::abs(gam13)/(gam13*v3Denom);
     eVectsD1(2,2) = std::abs(gam13)/v3Denom;
   } else if (hasE11 && hasE12 && !hasE13) {
     // case 2 - E13 is zero
@@ -238,37 +339,37 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     eValsD1(2,2) = 0.5*(e11 + rootE11Gam12Gam13);
 
     // v1
-    eVectsD1(2,0) = 1.0;
+    eVectsD1(0,2) = 1.0;
 
     // v2
     const double v2Denom = std::sqrt(gam12*gam12 +
                                      (e11 - rootE11Gam12Gam13)*(e11 - rootE11Gam12Gam13));
-    eVectsD1(0,1) = (e11 - rootE11Gam12Gam13)*std::abs(gam12)/(gam12*v2Denom);
+    eVectsD1(1,0) = (e11 - rootE11Gam12Gam13)*std::abs(gam12)/(gam12*v2Denom);
     eVectsD1(1,1) = std::abs(gam12)/(v2Denom);
 
     // v3
     const double v3Denom = std::sqrt(gam12*gam12 +
                                      (e11 + rootE11Gam12Gam13)*(e11 + rootE11Gam12Gam13));
-    eVectsD1(0,2) = (e11 + rootE11Gam12Gam13)*std::abs(gam12)/(gam12*v3Denom);
-    eVectsD1(1,2) = std::abs(gam12)/(v3Denom);
+    eVectsD1(2,0) = (e11 + rootE11Gam12Gam13)*std::abs(gam12)/(gam12*v3Denom);
+    eVectsD1(2,1) = std::abs(gam12)/(v3Denom);
   } else if (hasE11 && !hasE12 && hasE13) {
     // case 3 - E12 is zero
     eValsD1(1,1) = 0.5*(e11 - rootE11Gam12Gam13);
     eValsD1(2,2) = 0.5*(e11 + rootE11Gam12Gam13);
 
     // v1
-    eVectsD1(1,0) = 1.0;
+    eVectsD1(0,1) = 1.0;
 
     // v2
     const double v2Denom = std::sqrt(gam13*gam13 +
                                      (e11 - rootE11Gam12Gam13)*(e11 - rootE11Gam12Gam13));
-    eVectsD1(0,1) = (e11 - rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v2Denom);
-    eVectsD1(2,1) = std::abs(gam13)/(v2Denom);
+    eVectsD1(1,0) = (e11 - rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v2Denom);
+    eVectsD1(1,2) = std::abs(gam13)/(v2Denom);
 
     // v3
     const double v3Denom = std::sqrt(gam13*gam13 +
                                      (e11 + rootE11Gam12Gam13)*(e11 + rootE11Gam12Gam13));
-    eVectsD1(0,2) = (e11 + rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v3Denom);
+    eVectsD1(2,0) = (e11 + rootE11Gam12Gam13)*std::abs(gam13)/(gam13*v3Denom);
     eVectsD1(2,2) = std::abs(gam13)/(v3Denom);
   } else if (!hasE11 && hasE12 && hasE13) {
     // case 4 - E11 is zero
@@ -276,27 +377,27 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     eValsD1(2,2) = 0.5*rootE11Gam12Gam13;
 
     // v1
-    eVectsD1(1,0) = -1.0*gam13*std::abs(gam12)/(gam12*rootE11Gam12Gam13);
-    eVectsD1(2,0) = std::abs(gam12)/(rootE11Gam12Gam13);
+    eVectsD1(0,1) = -1.0*gam13*std::abs(gam12)/(gam12*rootE11Gam12Gam13);
+    eVectsD1(0,2) = std::abs(gam12)/(rootE11Gam12Gam13);
 
     // v2
     const double denom = std::sqrt(2.0*(gam12*gam12 + gam13*gam13));
-    eVectsD1(0,1) = -1.0*rootE11Gam12Gam13*std::abs(gam13)/(gam13*denom);
+    eVectsD1(1,0) = -1.0*rootE11Gam12Gam13*std::abs(gam13)/(gam13*denom);
     eVectsD1(1,1) = gam12*std::abs(gam13)/(gam13*denom);
-    eVectsD1(2,1) = std::abs(gam13)/denom;
+    eVectsD1(1,2) = std::abs(gam13)/denom;
 
     //v3
-    eVectsD1(0,2) = rootE11Gam12Gam13*std::abs(gam13)/(gam13*denom);
-    eVectsD1(1,2) = gam12*std::abs(gam13)/(gam13*denom);
+    eVectsD1(2,0) = rootE11Gam12Gam13*std::abs(gam13)/(gam13*denom);
+    eVectsD1(2,1) = gam12*std::abs(gam13)/(gam13*denom);
     eVectsD1(2,2) = std::abs(gam13)/denom;
     
   } else if (hasE11 && !hasE12 && !hasE13) {
     // case 5 - E12 and E13 are zero
     eValsD1(1,1) = e11;
     // v1
-    eVectsD1(1,0) = 1.0;
-    // v2
     eVectsD1(0,1) = 1.0;
+    // v2
+    eVectsD1(1,0) = 1.0;
     // v3
     eVectsD1(2,2) = 1.0;
   } else if (!hasE11 && hasE12 && !hasE13) {
@@ -304,24 +405,24 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     eValsD1(1,1) = -0.5*gam12;
     eValsD1(2,2) = 0.5*gam12;
     // v1
-    eVectsD1(2,0) = 1.0;
+    eVectsD1(0,2) = 1.0;
     // v2
-    eVectsD1(0,1) = -0.707106781186547;
+    eVectsD1(1,0) = -0.707106781186547;
     eVectsD1(1,1) = 0.707106781186547;
     // v3
-    eVectsD1(0,2) = 0.707106781186547;
-    eVectsD1(1,2) = 0.707106781186547;
+    eVectsD1(2,0) = 0.707106781186547;
+    eVectsD1(2,1) = 0.707106781186547;
   } else if (!hasE11 && !hasE12 && hasE13) {
     // case 7 - E11 and E12 are zero
     eValsD1(1,1) = -0.5*gam13;
     eValsD1(2,2) = 0.5*gam13;
     // v1
-    eVectsD1(1,0) = 1.0;
+    eVectsD1(0,1) = 1.0;
     // v2
-    eVectsD1(0,1) = -0.707106781186547;
-    eVectsD1(2,1) = 0.707106781186547;
+    eVectsD1(1,0) = -0.707106781186547;
+    eVectsD1(1,2) = 0.707106781186547;
     // v3
-    eVectsD1(0,2) = 0.707106781186547;
+    eVectsD1(2,0) = 0.707106781186547;
     eVectsD1(2,2) = 0.707106781186547;
   } else {
       // no strains, set eVects to global coord
@@ -336,7 +437,7 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
   eValsD1(2,2) = macaulayBracketPlus(eValsD1(2,2));
 
   // transform from spectral -> global
-  Matrix3d epsilonPlus = eVectsD1*eValsD1*eVectsD1.transpose();
+  Matrix3d epsilonPlus = eVectsD1.transpose()*eValsD1*eVectsD1;
 
   // Put back into Abaqus notation
   epsD1Plus(0) = abs(epsilonPlus(0,0)) > effZeroStrain ? epsilonPlus(0,0) : 0.0;
@@ -352,6 +453,22 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
 
 void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
                                         Vector6d& epsD2Plus) {
+  // This function computes the positive part of the D2 strain tensor
+  // epsD2+_i = L_{ij} <\hat{epsD2}_j>_+
+  //
+  // \hat{epsD2} are the eigenvalues of epsD2
+  //
+  // L_{ij} is related to eigenvalues of epsD2
+  // 
+  // Steps:
+  // 1) compute eigenvalues and eigenvectors
+  // 2) MacBracket eigenvalues
+  // 3) transform back to global coords: epsD2 = Q_{ki} \hat{epsD2}_{kl} Q_{lj}
+  //           | eV1.x1 eV1.x2 eV1.x3 |
+  //       Q = | eV2.x1 eV2.x2 eV2.x3 |
+  //           | eV3.x1 eV3.x2 eV3.x3 |
+  // NOTE: eVals and eVects are SAVED and used later!!!
+  // 
 
   // initialize work areas
   eValsD2 = Matrix3d::Zero();
@@ -373,21 +490,21 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
 
     // v1
     const double v1Denom = std::sqrt(gam12*gam12 + gam23*gam23);
-    eVectsD2(1,0) = -gam23*std::abs(gam12)/(gam12*v1Denom);
-    eVectsD2(2,0) = std::abs(gam12)/v1Denom;
+    eVectsD2(0,1) = -gam23*std::abs(gam12)/(gam12*v1Denom);
+    eVectsD2(0,2) = std::abs(gam12)/v1Denom;
 
     // v2
     const double v2Denom = std::sqrt(gam12*gam12 + gam23*gam23 +
                                      (e22 - rootE22Gam12Gam23)*(e22 - rootE22Gam12Gam23));
-    eVectsD2(0,1) = gam12*std::abs(gam23)/(gam23*v2Denom);
+    eVectsD2(1,0) = gam12*std::abs(gam23)/(gam23*v2Denom);
     eVectsD2(1,1) = (e22 - rootE22Gam12Gam23)*std::abs(gam23)/(gam23*v2Denom);
-    eVectsD2(2,1) = std::abs(gam23)/v2Denom;
+    eVectsD2(1,2) = std::abs(gam23)/v2Denom;
 
     // v3
     const double v3Denom = std::sqrt(gam12*gam12 + gam23*gam23 +
                                      (e22 + rootE22Gam12Gam23)*(e22 + rootE22Gam12Gam23));
-    eVectsD2(0,2) = gam12*std::abs(gam23)/(gam23*v3Denom);
-    eVectsD2(1,2) = (e22 + rootE22Gam12Gam23)*std::abs(gam23)/(gam23*v3Denom);
+    eVectsD2(2,0) = gam12*std::abs(gam23)/(gam23*v3Denom);
+    eVectsD2(2,1) = (e22 + rootE22Gam12Gam23)*std::abs(gam23)/(gam23*v3Denom);
     eVectsD2(2,2) = std::abs(gam23)/v3Denom;
   } else if (hasE22 && hasE12 && !hasE23) {
     // case 2 - E23 is zero
@@ -395,37 +512,37 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
     eValsD2(2,2) = 0.5*(e22 + rootE22Gam12Gam23);
 
     // v1
-    eVectsD2(2,0) = 1.0;
+    eVectsD2(0,2) = 1.0;
 
     // v2
     const double v2Denom = std::sqrt(gam12*gam12 +
                                      (e22 + rootE22Gam12Gam23)*(e22 + rootE22Gam12Gam23));
-    eVectsD2(0,1) = -(e22 + rootE22Gam12Gam23)*std::abs(gam12)/(gam12*v2Denom);
+    eVectsD2(1,0) = -(e22 + rootE22Gam12Gam23)*std::abs(gam12)/(gam12*v2Denom);
     eVectsD2(1,1) = std::abs(gam12)/(v2Denom);
 
     // v3
     const double v3Denom = std::sqrt(gam12*gam12 +
                                      (e22 - rootE22Gam12Gam23)*(e22 - rootE22Gam12Gam23));
-    eVectsD2(0,2) = -(e22 - rootE22Gam12Gam23)*std::abs(gam12)/(gam12*v3Denom);
-    eVectsD2(1,2) = std::abs(gam12)/(v3Denom);
+    eVectsD2(2,0) = -(e22 - rootE22Gam12Gam23)*std::abs(gam12)/(gam12*v3Denom);
+    eVectsD2(2,1) = std::abs(gam12)/(v3Denom);
   } else if (hasE22 && !hasE12 && hasE23) {
     // case 3 - E12 is zero
     eValsD2(1,1) = 0.5*(e22 - rootE22Gam12Gam23);
     eValsD2(2,2) = 0.5*(e22 + rootE22Gam12Gam23);
 
     // v1
-    eVectsD2(1,0) = 1.0;
+    eVectsD2(0,1) = 1.0;
 
     // v2
     const double v2Denom = std::sqrt(gam23*gam23 +
                                      (e22 - rootE22Gam12Gam23)*(e22 - rootE22Gam12Gam23));
     eVectsD2(1,1) = (e22 - rootE22Gam12Gam23)*std::abs(gam23)/(gam23*v2Denom);
-    eVectsD2(2,1) = std::abs(gam23)/(v2Denom);
+    eVectsD2(1,2) = std::abs(gam23)/(v2Denom);
 
     // v3
     const double v3Denom = std::sqrt(gam23*gam23 +
                                      (e22 + rootE22Gam12Gam23)*(e22 + rootE22Gam12Gam23));
-    eVectsD2(1,2) = (e22 + rootE22Gam12Gam23)*std::abs(gam23)/(gam23*v3Denom);
+    eVectsD2(2,1) = (e22 + rootE22Gam12Gam23)*std::abs(gam23)/(gam23*v3Denom);
     eVectsD2(2,2) = std::abs(gam23)/(v3Denom);
   } else if (!hasE22 && hasE12 && hasE23) {
     // case 4 - E22 is zero
@@ -433,18 +550,18 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
     eValsD2(2,2) = 0.5*rootE22Gam12Gam23;
 
     // v1
-    eVectsD2(1,0) = -1.0*gam23*std::abs(gam12)/(gam12*rootE22Gam12Gam23);
-    eVectsD2(2,0) = std::abs(gam12)/(rootE22Gam12Gam23);
+    eVectsD2(0,1) = -1.0*gam23*std::abs(gam12)/(gam12*rootE22Gam12Gam23);
+    eVectsD2(0,2) = std::abs(gam12)/(rootE22Gam12Gam23);
 
     // v2
     const double denom = std::sqrt(2.0*(gam12*gam12 + gam23*gam23));
-    eVectsD2(0,1) = gam12*std::abs(gam23)/(gam23*denom);
+    eVectsD2(1,0) = gam12*std::abs(gam23)/(gam23*denom);
     eVectsD2(1,1) = -1.0*rootE22Gam12Gam23*std::abs(gam23)/(gam23*denom);
-    eVectsD2(2,1) = std::abs(gam23)/denom;
+    eVectsD2(1,2) = std::abs(gam23)/denom;
 
     //v3
-    eVectsD2(0,2) = gam12*std::abs(gam23)/(gam23*denom);
-    eVectsD2(1,2) = rootE22Gam12Gam23*std::abs(gam23)/(gam23*denom);
+    eVectsD2(2,0) = gam12*std::abs(gam23)/(gam23*denom);
+    eVectsD2(2,1) = rootE22Gam12Gam23*std::abs(gam23)/(gam23*denom);
     eVectsD2(2,2) = std::abs(gam23)/denom;
     
   } else if (hasE22 && !hasE12 && !hasE23) {
@@ -461,30 +578,30 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
     eValsD2(1,1) = -0.5*gam12;
     eValsD2(2,2) = 0.5*gam12;
     // v1
-    eVectsD2(2,0) = 1.0;
+    eVectsD2(0,2) = 1.0;
     // v2
-    eVectsD2(0,1) = -0.707106781186547;
+    eVectsD2(1,0) = -0.707106781186547;
     eVectsD2(1,1) = 0.707106781186547;
     // v3
-    eVectsD2(0,2) = 0.707106781186547;
-    eVectsD2(1,2) = 0.707106781186547;
+    eVectsD2(2,0) = 0.707106781186547;
+    eVectsD2(2,1) = 0.707106781186547;
   } else if (!hasE22 && !hasE12 && hasE23) {
     // case 7 - E22 and E12 are zero
     eValsD2(1,1) = -0.5*gam23;
     eValsD2(2,2) = 0.5*gam23;
     // v1
-    eVectsD2(1,0) = 1.0;
+    eVectsD2(0,0) = 1.0;
     // v2
     eVectsD2(1,1) = -0.707106781186547;
-    eVectsD2(2,1) = 0.707106781186547;
-    // v3
     eVectsD2(1,2) = 0.707106781186547;
+    // v3
+    eVectsD2(2,1) = 0.707106781186547;
     eVectsD2(2,2) = 0.707106781186547;
   } else {
     // no strains, set eVects to global coord
-    eVectsD2(0, 0) = 1.0;
-    eVectsD2(1, 1) = 1.0;
-    eVectsD2(2, 2) = 1.0;
+    eVectsD2(0,0) = 1.0;
+    eVectsD2(1,1) = 1.0;
+    eVectsD2(2,2) = 1.0;
   }
 
 
@@ -494,7 +611,7 @@ void OpenDMModel4Param::posPartStrainD2(const Vector6d& epsD2,
   eValsD2(2,2) = macaulayBracketPlus(eValsD2(2,2));
 
   // transform from spectral -> global
-  Matrix3d epsilonPlus = eVectsD2*eValsD2*eVectsD2.transpose();
+  Matrix3d epsilonPlus = eVectsD2.transpose()*eValsD2*eVectsD2;
 
   // Put back into Abaqus notation
   epsD2Plus(0) = abs(epsilonPlus(0,0)) > effZeroStrain ? epsilonPlus(0,0) : 0.0;
@@ -528,6 +645,8 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
   // Transformation matrix spectral -> Global
   // since I know I have limited \hat{\epsilon_i^{D1+}}
   // I only need part of this
+  // Components are based on transformation of strain from spectral to
+  // global coords
   double L12 = eVectsD1(1,0)*eVectsD1(1,0), L13 = eVectsD1(2,0)*eVectsD1(2,0),
     L22 = eVectsD1(1,1)*eVectsD1(1,1), L23 = eVectsD1(2,1)*eVectsD1(2,1),
     L32 = eVectsD1(1,2)*eVectsD1(1,2), L33 = eVectsD1(2,2)*eVectsD1(2,2),
@@ -554,44 +673,48 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
     // case 1 - all D1 strains present
     // d L_{ij}/d \epsilon_k for this case
     // \epsilon_{11}
-    dL22dEps(0) =  0.50000000000000011*gam12Sq*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL32dEps(0) =  0.50000000000000011*gam12Sq*1.0/rootE11Gam12Gam13*(-eps11Sq - rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL42dEps(0) =  -0.70710678118654757*1.0/rootE11Gam12Gam13*(eps11Sq - rootE11Gam12Gam13*(2.0*epsilon11 - rootE11Gam12Gam13))*fabs(gamma12*gamma13)/(sqrt(1.0*gam12Sq + gam13Sq)*pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-    dL52dEps(0) =  0.70710678118654757*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))*fabs(gamma12*gamma13)/(sqrt(1.0*gam12Sq + gam13Sq)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-    dL62dEps(0) =  -1.0000000000000002*epsilon11*pow(gam12Sq, 2)/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)) - 1.0000000000000002*epsilon11*gam12Sq*gam13Sq/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-    dL23dEps(0) =  0.50000000000000011*gam13Sq*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL33dEps(0) =  0.50000000000000011*gam13Sq*1.0/rootE11Gam12Gam13*(-eps11Sq - rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL43dEps(0) =  0.70710678118654757*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13))*fabs(gamma12*gamma13)/(sqrt(1.0*gam12Sq + gam13Sq)*pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-    dL53dEps(0) =  -0.70710678118654757*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))*fabs(gamma12*gamma13)/(sqrt(1.0*gam12Sq + gam13Sq)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-    dL63dEps(0) =  -1.0000000000000002*epsilon11*gam12Sq*gam13Sq/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)) - 1.0000000000000002*epsilon11*pow(gam13Sq, 2)/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
+    dL12dEps(0) = pow(rootE11Gam12Gam13, -2.0)*(eps11Sq*rootE11Gam12Gam13*(0.50000000000000011*eps11Sq + rootE11Gam12Gam13*(-1.0000000000000002*epsilon11 + 0.50000000000000011*rootE11Gam12Gam13)) - 1.0000000000000002*eps11Sq*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + pow(rootE11Gam12Gam13, 2.0)*(2.0000000000000004*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + pow(rootE11Gam12Gam13, 2.0)*(-1.0000000000000002*epsilon11*(1.0*eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13)) + rootE11Gam12Gam13*(0.50000000000000011*eps11Sq + rootE11Gam12Gam13*(-1.0000000000000002*epsilon11 + 0.50000000000000011*rootE11Gam12Gam13))))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL22dEps(0) = 0.50000000000000011*gam12Sq*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL32dEps(0) = 0.50000000000000011*gam13Sq*1.0/rootE11Gam12Gam13*(eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL42dEps(0) = 1.0000000000000002*gamma12*pow(rootE11Gam12Gam13, -2.0)*(epsilon11*rootE11Gam12Gam13*(1.0*eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13)) - epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13)) + pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL52dEps(0) = 1.0000000000000002*gamma13*pow(rootE11Gam12Gam13, -2.0)*(epsilon11*rootE11Gam12Gam13*(1.0*eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13)) - epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13)) + pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL62dEps(0) = 1.0000000000000002*gamma12*gamma13*1.0/rootE11Gam12Gam13*(1.0*eps11Sq + rootE11Gam12Gam13*(-2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    // col2
+    dL13dEps(0) = pow(rootE11Gam12Gam13, -2.0)*(-eps11Sq*rootE11Gam12Gam13*(0.50000000000000011*eps11Sq + rootE11Gam12Gam13*(1.0000000000000002*epsilon11 + 0.50000000000000011*rootE11Gam12Gam13)) + 1.0000000000000002*eps11Sq*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + pow(rootE11Gam12Gam13, 2.0)*(2.0000000000000004*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0000000000000002*epsilon11*(1.0*eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13)) + rootE11Gam12Gam13*(0.50000000000000011*eps11Sq + rootE11Gam12Gam13*(1.0000000000000002*epsilon11 + 0.50000000000000011*rootE11Gam12Gam13))))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL23dEps(0) = 0.50000000000000011*gam12Sq*1.0/rootE11Gam12Gam13*(-eps11Sq - rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL33dEps(0) = 0.50000000000000011*gam13Sq*1.0/rootE11Gam12Gam13*(-eps11Sq - rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL43dEps(0) = 1.0000000000000002*gamma12*pow(rootE11Gam12Gam13, -2.0)*(-epsilon11*rootE11Gam12Gam13*(1.0*eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13)) + epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13)) + pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL53dEps(0) = 1.0000000000000002*gamma13*pow(rootE11Gam12Gam13, -2.0)*(-epsilon11*rootE11Gam12Gam13*(1.0*eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13)) + epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13)) + pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+    dL63dEps(0) = -1.0000000000000002*gamma12*gamma13*1.0/rootE11Gam12Gam13*(1.0*eps11Sq + rootE11Gam12Gam13*(2.0*epsilon11 + rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
     // \gamma_{12}
-    dL12dEps(3) =  -2.0*gam13Sq*gamma12/pow(1.0*gam12Sq + gam13Sq, 2) ;
-    dL22dEps(3) = gamma12/rootE11Gam12Gam13*(gam12Sq*(0.5*epsilon11 - rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL32dEps(3) =  gamma12/rootE11Gam12Gam13*(-0.5*gam12Sq*(epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
-    dL42dEps(3) =  -1.4142135623730951*gamma12*1.0/rootE11Gam12Gam13*(gam12Sq + gam13Sq)*(rootE11Gam12Gam13*(gam12Sq + gam13Sq)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma13/gamma12) - rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 - rootE11Gam12Gam13)*(gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq - epsilon11*gam12Sq*rootE11Gam12Gam13 - epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL52dEps(3) =  1.4142135623730951*gamma12*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(-rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma13/gamma12) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 + 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq + 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 + epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL62dEps(3) =  gamma12*pow(rootE11Gam12Gam13, -2.0)*(1.0000000000000002*gam12Sq*rootE11Gam12Gam13*(0.5*epsilon11 - 1.0*rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - 1.0000000000000002*gam12Sq*rootE11Gam12Gam13*(0.5*epsilon11 + 1.0*rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + 2.0000000000000004*pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
+   dL12dEps(3) = gamma12*pow(rootE11Gam12Gam13, -2.0)*(eps11Sq*rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13) - 1.0000000000000002*epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + pow(rootE11Gam12Gam13, 2.0)*(-1.0000000000000002*epsilon11*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)) + 1.0000000000000002*pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL22dEps(3) = gamma12*1.0/rootE11Gam12Gam13*(gam12Sq*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*eps11Sq - 1.0000000000000002*epsilon11*rootE11Gam12Gam13 + 0.50000000000000011*gam12Sq + 0.50000000000000011*gam13Sq + 0.50000000000000011*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL32dEps(3) = gam13Sq*gamma12*1.0/rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL42dEps(3) = 1.0000000000000002*pow(rootE11Gam12Gam13, -2.0)*(epsilon11*gam12Sq*rootE11Gam12Gam13*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) - gam12Sq*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - gam12Sq*pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) + pow(rootE11Gam12Gam13, 2.0)*(epsilon11 - rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL52dEps(3) = 1.0000000000000002*gamma12*gamma13*pow(rootE11Gam12Gam13, -2.0)*(epsilon11*rootE11Gam12Gam13*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) - rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL62dEps(3) = 1.0000000000000002*gamma13*1.0/rootE11Gam12Gam13*(gam12Sq*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   // col2
+   dL13dEps(3) = gamma12*pow(rootE11Gam12Gam13, -2.0)*(-eps11Sq*rootE11Gam12Gam13*(0.50000000000000011*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13) + 1.0000000000000002*epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0000000000000002*epsilon11*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13)) + 1.0000000000000002*pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL23dEps(3) = gamma12*1.0/rootE11Gam12Gam13*(-0.50000000000000011*gam12Sq*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + 1.0000000000000002*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL33dEps(3) = gam13Sq*gamma12*1.0/rootE11Gam12Gam13*(-0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL43dEps(3) = 1.0000000000000002*pow(rootE11Gam12Gam13, -2.0)*(-epsilon11*gam12Sq*rootE11Gam12Gam13*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + gam12Sq*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - gam12Sq*pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + pow(rootE11Gam12Gam13, 2.0)*(epsilon11 + rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL53dEps(3) = 1.0000000000000002*gamma12*gamma13*pow(rootE11Gam12Gam13, -2.0)*(-epsilon11*rootE11Gam12Gam13*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL63dEps(3) = 1.0000000000000002*gamma13*1.0/rootE11Gam12Gam13*(-gam12Sq*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   // \gamma_{13}
+   dL12dEps(4) = gamma13*pow(rootE11Gam12Gam13, -2.0)*(eps11Sq*rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13) - 1.0000000000000002*epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + pow(rootE11Gam12Gam13, 2.0)*(-1.0000000000000002*epsilon11*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)) + 1.0000000000000002*pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL22dEps(4) = gam12Sq*gamma13*1.0/rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL32dEps(4) = gamma13*1.0/rootE11Gam12Gam13*(gam13Sq*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*eps11Sq - 1.0000000000000002*epsilon11*rootE11Gam12Gam13 + 0.50000000000000011*gam12Sq + 0.50000000000000011*gam13Sq + 0.50000000000000011*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL42dEps(4) = 1.0000000000000002*gamma12*gamma13*pow(rootE11Gam12Gam13, -2.0)*(epsilon11*rootE11Gam12Gam13*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) - rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL52dEps(4) = 1.0000000000000002*pow(rootE11Gam12Gam13, -2.0)*(epsilon11*gam13Sq*rootE11Gam12Gam13*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) - gam13Sq*rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - gam13Sq*pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) + pow(rootE11Gam12Gam13, 2.0)*(epsilon11 - rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL62dEps(4) = 1.0000000000000002*gamma12*1.0/rootE11Gam12Gam13*(gam13Sq*(1.0*epsilon11 - 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   // col2
+   dL13dEps(4) = gamma13*pow(rootE11Gam12Gam13, -2.0)*(-eps11Sq*rootE11Gam12Gam13*(0.50000000000000011*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13) + 1.0000000000000002*epsilon11*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0000000000000002*epsilon11*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13)) + 1.0000000000000002*pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL23dEps(4) = gam12Sq*gamma13*1.0/rootE11Gam12Gam13*(-0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL33dEps(4) = gamma13*1.0/rootE11Gam12Gam13*(-0.50000000000000011*gam13Sq*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + 1.0000000000000002*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL43dEps(4) = 1.0000000000000002*gamma12*gamma13*pow(rootE11Gam12Gam13, -2.0)*(-epsilon11*rootE11Gam12Gam13*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL53dEps(4) = 1.0000000000000002*pow(rootE11Gam12Gam13, -2.0)*(-epsilon11*gam13Sq*rootE11Gam12Gam13*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + gam13Sq*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - gam13Sq*pow(rootE11Gam12Gam13, 2.0)*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + pow(rootE11Gam12Gam13, 2.0)*(epsilon11 + rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
+   dL63dEps(4) = 1.0000000000000002*gamma12*1.0/rootE11Gam12Gam13*(-gam13Sq*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2) ;
 
-    dL13dEps(3) =  2.0*gam13Sq*gamma12/(1.0*pow(gam12Sq, 2) + 2.0*gam12Sq*gam13Sq + 1.0*pow(gam13Sq, 2)) ;
-    dL23dEps(3) =  gam13Sq*gamma12*1.0/rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL33dEps(3) =  gam13Sq*gamma12*1.0/rootE11Gam12Gam13*(-0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL43dEps(3) =  1.4142135623730951*gamma12*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma13/gamma12) - rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 - 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq - 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 - epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL53dEps(3) =  -1.4142135623730951*gamma12*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(-rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma13/gamma12) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 + 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq + 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 + epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL63dEps(3) =  gam13Sq*gamma12*1.0/rootE11Gam12Gam13*((0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - (0.50000000000000011*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-    // \gamma_{13}
-    dL12dEps(4) =  2.0*gam12Sq*gamma13/(1.0*pow(gam12Sq, 2) + 2.0*gam12Sq*gam13Sq + 1.0*pow(gam13Sq, 2));
-    dL22dEps(4) =  gam12Sq*gamma13*1.0/rootE11Gam12Gam13*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL32dEps(4) =  gam12Sq*gamma13*1.0/rootE11Gam12Gam13*(-0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL42dEps(4) =  -1.4142135623730951*gamma13*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12/gamma13) - rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 - 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq - 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 - epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL52dEps(4) =  1.4142135623730951*gamma13*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(-rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12/gamma13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 + 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq + 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 + epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL62dEps(4) =  gam12Sq*gamma13*1.0/rootE11Gam12Gam13*((0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - (0.50000000000000011*epsilon11 + 1.0000000000000002*rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
-
-    dL13dEps(4) =  -2.0*gam12Sq*gamma13/pow(1.0*gam12Sq + gam13Sq, 2);
-    dL23dEps(4) =  gamma13*1.0/rootE11Gam12Gam13*(gam13Sq*(0.50000000000000011*epsilon11 - 1.0000000000000002*rootE11Gam12Gam13) + rootE11Gam12Gam13*(0.50000000000000011*eps11Sq - 1.0000000000000002*epsilon11*rootE11Gam12Gam13 + 0.50000000000000011*gam12Sq + 0.50000000000000011*gam13Sq + 0.50000000000000011*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL33dEps(4) =  gamma13*1.0/rootE11Gam12Gam13*(-0.50000000000000011*gam13Sq*(1.0*epsilon11 + 2.0*rootE11Gam12Gam13) + 1.0000000000000002*rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 2);
-    dL43dEps(4) = 1.4142135623730951*gamma13*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12/gamma13) - rootE11Gam12Gam13*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 - 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq - 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 - epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL53dEps(4) = -1.4142135623730951*gamma13*1.0/rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(-rootE11Gam12Gam13*(1.0*gam12Sq + gam13Sq)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12/gamma13) + rootE11Gam12Gam13*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*fabs(gamma12*gamma13) + (0.5*epsilon11 + 1.0*rootE11Gam12Gam13)*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13))*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))/pow(0.5*eps11Sq*gam12Sq + 0.5*eps11Sq*gam13Sq + 1.0*epsilon11*gam12Sq*rootE11Gam12Gam13 + epsilon11*gam13Sq*rootE11Gam12Gam13 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam13Sq + 0.5*gam12Sq*pow(rootE11Gam12Gam13, 2.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(rootE11Gam12Gam13, 2.0), 5.0/2.0);
-    dL63dEps(4) =  gamma13*pow(rootE11Gam12Gam13, -2.0)*(1.0000000000000002*gam13Sq*rootE11Gam12Gam13*(0.5*epsilon11 - 1.0*rootE11Gam12Gam13)*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) - 1.0000000000000002*gam13Sq*rootE11Gam12Gam13*(0.5*epsilon11 + 1.0*rootE11Gam12Gam13)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)) + 2.0000000000000004*pow(rootE11Gam12Gam13, 2.0)*(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0))*(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0)))/(pow(0.5*eps11Sq - epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0)*pow(0.5*eps11Sq + epsilon11*rootE11Gam12Gam13 + 0.5*gam12Sq + 0.5*gam13Sq + 0.5*pow(rootE11Gam12Gam13, 2.0), 3.0/2.0));
 
     // eVal2
     if (eValsD1(1,1) != 0.0) {
@@ -612,13 +735,34 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
   } else if (hasE11 && hasE12 && !hasE13) {
     // case 2 - E13 is zero
     // \epsilon_{11}
-    dL22dEps(0) = gam12Sq*pow(eps11Sq + gam12Sq, -0.5)*(2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(-4.0*epsilon11 + 2.0*sqrt(eps11Sq + gam12Sq)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2);
-    dL32dEps(0) = gam12Sq*(-2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(-4.0*epsilon11 - 2.0*sqrt(eps11Sq + gam12Sq)))*pow(eps11Sq + gam12Sq, -0.5)/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2);
-    dL62dEps(0) = -8.0*epsilon11*pow(gam12Sq, 2)*sqrt(eps11Sq + gam12Sq)/(sqrt(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0))*sqrt(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0))*(1.0*pow(eps11Sq, 2)*sqrt(eps11Sq + gam12Sq) + 2.0*eps11Sq*gam12Sq*sqrt(eps11Sq + gam12Sq) - 2.0*eps11Sq*pow(eps11Sq + gam12Sq, 1.5) + 1.0*pow(gam12Sq, 2)*sqrt(eps11Sq + gam12Sq) + 2.0*gam12Sq*pow(eps11Sq + gam12Sq, 1.5) + 1.0*pow(eps11Sq + gam12Sq, 2.5)));
-    // \gamma_{12}
-    dL22dEps(3) = gamma12*pow(eps11Sq + gam12Sq, -0.5)*(1.0*gam12Sq*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam12Sq)) + 2.0*sqrt(eps11Sq + gam12Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2);
-    dL32dEps(3) = gamma12*pow(eps11Sq + gam12Sq, -0.5)*(-1.0*gam12Sq*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam12Sq)) + 2.0*sqrt(eps11Sq + gam12Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2);
-    dL62dEps(3) = gamma12*(4.0*pow(eps11Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 8.0*eps11Sq*gam12Sq*pow(eps11Sq + gam12Sq, 1.0) - 8.0*eps11Sq*pow(eps11Sq + gam12Sq, 2.0) - 4.0*pow(gam12Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 4.0*pow(eps11Sq + gam12Sq, 3.0))/(sqrt(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0))*sqrt(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0))*(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*eps11Sq*gam12Sq*pow(eps11Sq + gam12Sq, 1.0) - 2.0*eps11Sq*pow(eps11Sq + gam12Sq, 2.0) + 1.0*pow(gam12Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps11Sq + gam12Sq, 2.0) + 1.0*pow(eps11Sq + gam12Sq, 3.0)));
+   dL12dEps(0) = gam12Sq*(-2.0*eps11Sq*sqrt(eps11Sq + gam12Sq) + 4.0*epsilon11*pow(eps11Sq + gam12Sq, 1.0) - 2.0*pow(eps11Sq + gam12Sq, 1.5))/(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*eps11Sq*gam12Sq*pow(eps11Sq + gam12Sq, 1.0) + 6.0*eps11Sq*pow(eps11Sq + gam12Sq, 2.0) - 4.0*pow(epsilon11, 3)*pow(eps11Sq + gam12Sq, 1.5) - 4.0*epsilon11*gam12Sq*pow(eps11Sq + gam12Sq, 1.5) - 4.0*epsilon11*pow(eps11Sq + gam12Sq, 2.5) + 1.0*pow(gam12Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps11Sq + gam12Sq, 2.0) + 1.0*pow(eps11Sq + gam12Sq, 3.0)) ;
+   dL22dEps(0) = gam12Sq*pow(eps11Sq + gam12Sq, -0.5)*(2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(-4.0*epsilon11 + 2.0*sqrt(eps11Sq + gam12Sq)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL32dEps(0) = 0 ;
+   dL42dEps(0) = 2.0*gamma12*1.0/(eps11Sq + gam12Sq)*(epsilon11*sqrt(eps11Sq + gam12Sq)*(2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(-4.0*epsilon11 + 2*sqrt(eps11Sq + gam12Sq))) - epsilon11*sqrt(eps11Sq + gam12Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)) - pow(eps11Sq + gam12Sq, 1.0)*(2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(-4.0*epsilon11 + 2*sqrt(eps11Sq + gam12Sq))) + pow(eps11Sq + gam12Sq, 1.0)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL52dEps(0) = 0 ;
+   dL62dEps(0) = 0 ;
+   // col2
+   dL13dEps(0) = gam12Sq*(2.0*eps11Sq*sqrt(eps11Sq + gam12Sq) + 4.0*epsilon11*pow(eps11Sq + gam12Sq, 1.0) + 2.0*pow(eps11Sq + gam12Sq, 1.5))/(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*eps11Sq*gam12Sq*pow(eps11Sq + gam12Sq, 1.0) + 6.0*eps11Sq*pow(eps11Sq + gam12Sq, 2.0) + 4.0*pow(epsilon11, 3)*pow(eps11Sq + gam12Sq, 1.5) + 4.0*epsilon11*gam12Sq*pow(eps11Sq + gam12Sq, 1.5) + 4.0*epsilon11*pow(eps11Sq + gam12Sq, 2.5) + 1.0*pow(gam12Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps11Sq + gam12Sq, 2.0) + 1.0*pow(eps11Sq + gam12Sq, 3.0)) ;
+   dL23dEps(0) = gam12Sq*(-2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(-4.0*epsilon11 - 2.0*sqrt(eps11Sq + gam12Sq)))*pow(eps11Sq + gam12Sq, -0.5)/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL33dEps(0) = 0 ;
+   dL43dEps(0) = 2.0*gamma12*1.0/(eps11Sq + gam12Sq)*(-epsilon11*sqrt(eps11Sq + gam12Sq)*(2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(4.0*epsilon11 + 2*sqrt(eps11Sq + gam12Sq))) + epsilon11*sqrt(eps11Sq + gam12Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)) - pow(eps11Sq + gam12Sq, 1.0)*(2.0*eps11Sq + sqrt(eps11Sq + gam12Sq)*(4.0*epsilon11 + 2*sqrt(eps11Sq + gam12Sq))) + pow(eps11Sq + gam12Sq, 1.0)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL53dEps(0) = 0 ;
+   dL63dEps(0) = 0 ;
+   // \gamma_{12}
+   dL12dEps(3) = gamma12*1.0/(eps11Sq + gam12Sq)*(eps11Sq*sqrt(eps11Sq + gam12Sq)*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam12Sq)) - 2.0*epsilon11*sqrt(eps11Sq + gam12Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)) + pow(eps11Sq + gam12Sq, 1.0)*(-2.0*epsilon11 + sqrt(eps11Sq + gam12Sq))*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam12Sq)) + 2.0*pow(eps11Sq + gam12Sq, 1.0)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL22dEps(3) = gamma12*pow(eps11Sq + gam12Sq, -0.5)*(1.0*gam12Sq*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam12Sq)) + 2.0*sqrt(eps11Sq + gam12Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL32dEps(3) = 0 ;
+   dL42dEps(3) = 2.0*1.0/(eps11Sq + gam12Sq)*(epsilon11*gam12Sq*sqrt(eps11Sq + gam12Sq)*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam12Sq)) - gam12Sq*sqrt(eps11Sq + gam12Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)) - gam12Sq*pow(eps11Sq + gam12Sq, 1.0)*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam12Sq)) + pow(eps11Sq + gam12Sq, 1.0)*(epsilon11 - sqrt(eps11Sq + gam12Sq))*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL52dEps(3) = 0 ;
+   dL62dEps(3) = 0 ;
+   // col2
+   dL13dEps(3) = gamma12*(-2.0*eps11Sq*pow(eps11Sq + gam12Sq, 1.0) + 2.0*epsilon11*gam12Sq*sqrt(eps11Sq + gam12Sq) - 4.0*epsilon11*pow(eps11Sq + gam12Sq, 1.5) + 2.0*gam12Sq*pow(eps11Sq + gam12Sq, 1.0) - 2.0*pow(eps11Sq + gam12Sq, 2.0))/(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*eps11Sq*gam12Sq*pow(eps11Sq + gam12Sq, 1.0) + 6.0*eps11Sq*pow(eps11Sq + gam12Sq, 2.0) + 4.0*pow(epsilon11, 3)*pow(eps11Sq + gam12Sq, 1.5) + 4.0*epsilon11*gam12Sq*pow(eps11Sq + gam12Sq, 1.5) + 4.0*epsilon11*pow(eps11Sq + gam12Sq, 2.5) + 1.0*pow(gam12Sq, 2)*pow(eps11Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps11Sq + gam12Sq, 2.0) + 1.0*pow(eps11Sq + gam12Sq, 3.0)) ;
+   dL23dEps(3) = gamma12*pow(eps11Sq + gam12Sq, -0.5)*(-1.0*gam12Sq*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam12Sq)) + 2.0*sqrt(eps11Sq + gam12Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL33dEps(3) = 0 ;
+   dL43dEps(3) = 2.0*1.0/(eps11Sq + gam12Sq)*(-epsilon11*gam12Sq*sqrt(eps11Sq + gam12Sq)*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam12Sq)) + gam12Sq*sqrt(eps11Sq + gam12Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)) - gam12Sq*pow(eps11Sq + gam12Sq, 1.0)*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam12Sq)) + pow(eps11Sq + gam12Sq, 1.0)*(epsilon11 + sqrt(eps11Sq + gam12Sq))*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam12Sq) + gam12Sq + pow(eps11Sq + gam12Sq, 1.0), 2) ;
+   dL53dEps(3) = 0 ;
+   dL63dEps(3) = 0 ;
+   // \gamma_{13} = 0, so all 0
 
     // eVal2
     if (eValsD1(1,1) != 0.0) {
@@ -637,13 +781,34 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
   } else if (hasE11 && !hasE12 && hasE13) {
     // case 3 - E12 is zero
     // \epsilon_{11}
-    dL23dEps(0) = gam13Sq*pow(eps11Sq + gam13Sq, -0.5)*(2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(-4.0*epsilon11 + 2.0*sqrt(eps11Sq + gam13Sq)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2);
-    dL33dEps(0) = gam13Sq*(-2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(-4.0*epsilon11 - 2.0*sqrt(eps11Sq + gam13Sq)))*pow(eps11Sq + gam13Sq, -0.5)/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2);
-    dL63dEps(0) = -8.0*epsilon11*pow(gam13Sq, 2)*sqrt(eps11Sq + gam13Sq)/(sqrt(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0))*sqrt(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0))*(1.0*pow(eps11Sq, 2)*sqrt(eps11Sq + gam13Sq) + 2.0*eps11Sq*gam13Sq*sqrt(eps11Sq + gam13Sq) - 2.0*eps11Sq*pow(eps11Sq + gam13Sq, 1.5) + 1.0*pow(gam13Sq, 2)*sqrt(eps11Sq + gam13Sq) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 1.5) + 1.0*pow(eps11Sq + gam13Sq, 2.5)));
+    dL12dEps(0) = gam13Sq*(-2.0*eps11Sq*sqrt(eps11Sq + gam13Sq) + 4.0*epsilon11*pow(eps11Sq + gam13Sq, 1.0) - 2.0*pow(eps11Sq + gam13Sq, 1.5))/(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) + 6.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) - 4.0*pow(epsilon11, 3)*pow(eps11Sq + gam13Sq, 1.5) - 4.0*epsilon11*gam13Sq*pow(eps11Sq + gam13Sq, 1.5) - 4.0*epsilon11*pow(eps11Sq + gam13Sq, 2.5) + 1.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(eps11Sq + gam13Sq, 3.0)) ;
+    dL22dEps(0) = 0 ;
+    dL32dEps(0) = gam13Sq*pow(eps11Sq + gam13Sq, -0.5)*(2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(-4.0*epsilon11 + 2.0*sqrt(eps11Sq + gam13Sq)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL42dEps(0) = 0 ;
+    dL52dEps(0) = 2.0*gamma13*1.0/(eps11Sq + gam13Sq)*(epsilon11*sqrt(eps11Sq + gam13Sq)*(2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(-4.0*epsilon11 + 2*sqrt(eps11Sq + gam13Sq))) - epsilon11*sqrt(eps11Sq + gam13Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)) - pow(eps11Sq + gam13Sq, 1.0)*(2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(-4.0*epsilon11 + 2*sqrt(eps11Sq + gam13Sq))) + pow(eps11Sq + gam13Sq, 1.0)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL62dEps(0) = 0 ;
+    // col2
+    dL13dEps(0) = gam13Sq*(2.0*eps11Sq*sqrt(eps11Sq + gam13Sq) + 4.0*epsilon11*pow(eps11Sq + gam13Sq, 1.0) + 2.0*pow(eps11Sq + gam13Sq, 1.5))/(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) + 6.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) + 4.0*pow(epsilon11, 3)*pow(eps11Sq + gam13Sq, 1.5) + 4.0*epsilon11*gam13Sq*pow(eps11Sq + gam13Sq, 1.5) + 4.0*epsilon11*pow(eps11Sq + gam13Sq, 2.5) + 1.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(eps11Sq + gam13Sq, 3.0)) ;
+    dL23dEps(0) = 0 ;
+    dL33dEps(0) = gam13Sq*(-2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(-4.0*epsilon11 - 2.0*sqrt(eps11Sq + gam13Sq)))*pow(eps11Sq + gam13Sq, -0.5)/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL43dEps(0) = 0 ;
+    dL53dEps(0) = 2.0*gamma13*1.0/(eps11Sq + gam13Sq)*(-epsilon11*sqrt(eps11Sq + gam13Sq)*(2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(4.0*epsilon11 + 2*sqrt(eps11Sq + gam13Sq))) + epsilon11*sqrt(eps11Sq + gam13Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)) - pow(eps11Sq + gam13Sq, 1.0)*(2.0*eps11Sq + sqrt(eps11Sq + gam13Sq)*(4.0*epsilon11 + 2*sqrt(eps11Sq + gam13Sq))) + pow(eps11Sq + gam13Sq, 1.0)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL63dEps(0) = 0 ;
     // \gamma_{13}
-    dL23dEps(4) = gamma13*pow(eps11Sq + gam13Sq, -0.5)*(1.0*gam13Sq*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam13Sq)) + 2.0*sqrt(eps11Sq + gam13Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2);
-    dL33dEps(4) = gamma13*pow(eps11Sq + gam13Sq, -0.5)*(-1.0*gam13Sq*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam13Sq)) + 2.0*sqrt(eps11Sq + gam13Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2);
-    dL63dEps(4) = gamma13*(4.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 8.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) - 8.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) - 4.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 4.0*pow(eps11Sq + gam13Sq, 3.0))/(sqrt(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0))*sqrt(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0))*(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) - 2.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(eps11Sq + gam13Sq, 3.0)));
+    dL12dEps(4) = gamma13*1.0/(eps11Sq + gam13Sq)*(eps11Sq*sqrt(eps11Sq + gam13Sq)*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam13Sq)) - 2.0*epsilon11*sqrt(eps11Sq + gam13Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)) + pow(eps11Sq + gam13Sq, 1.0)*(-2.0*epsilon11 + sqrt(eps11Sq + gam13Sq))*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam13Sq)) + 2.0*pow(eps11Sq + gam13Sq, 1.0)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL22dEps(4) = 0 ;
+    dL32dEps(4) = gamma13*pow(eps11Sq + gam13Sq, -0.5)*(1.0*gam13Sq*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam13Sq)) + 2.0*sqrt(eps11Sq + gam13Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL42dEps(4) = 0 ;
+    dL52dEps(4) = 2.0*1.0/(eps11Sq + gam13Sq)*(epsilon11*gam13Sq*sqrt(eps11Sq + gam13Sq)*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam13Sq)) - gam13Sq*sqrt(eps11Sq + gam13Sq)*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)) - gam13Sq*pow(eps11Sq + gam13Sq, 1.0)*(2.0*epsilon11 - 4.0*sqrt(eps11Sq + gam13Sq)) + pow(eps11Sq + gam13Sq, 1.0)*(epsilon11 - sqrt(eps11Sq + gam13Sq))*(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq - 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL62dEps(4) = 0 ;
+    // col2
+    dL13dEps(4) = gamma13*(-2.0*eps11Sq*pow(eps11Sq + gam13Sq, 1.0) + 2.0*epsilon11*gam13Sq*sqrt(eps11Sq + gam13Sq) - 4.0*epsilon11*pow(eps11Sq + gam13Sq, 1.5) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) - 2.0*pow(eps11Sq + gam13Sq, 2.0))/(1.0*pow(eps11Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*eps11Sq*gam13Sq*pow(eps11Sq + gam13Sq, 1.0) + 6.0*eps11Sq*pow(eps11Sq + gam13Sq, 2.0) + 4.0*pow(epsilon11, 3)*pow(eps11Sq + gam13Sq, 1.5) + 4.0*epsilon11*gam13Sq*pow(eps11Sq + gam13Sq, 1.5) + 4.0*epsilon11*pow(eps11Sq + gam13Sq, 2.5) + 1.0*pow(gam13Sq, 2)*pow(eps11Sq + gam13Sq, 1.0) + 2.0*gam13Sq*pow(eps11Sq + gam13Sq, 2.0) + 1.0*pow(eps11Sq + gam13Sq, 3.0)) ;
+    dL23dEps(4) = 0 ;
+    dL33dEps(4) = gamma13*pow(eps11Sq + gam13Sq, -0.5)*(-1.0*gam13Sq*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam13Sq)) + 2.0*sqrt(eps11Sq + gam13Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL43dEps(4) = 0 ;
+    dL53dEps(4) = 2.0*1.0/(eps11Sq + gam13Sq)*(-epsilon11*gam13Sq*sqrt(eps11Sq + gam13Sq)*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam13Sq)) + gam13Sq*sqrt(eps11Sq + gam13Sq)*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)) - gam13Sq*pow(eps11Sq + gam13Sq, 1.0)*(2.0*epsilon11 + 4.0*sqrt(eps11Sq + gam13Sq)) + pow(eps11Sq + gam13Sq, 1.0)*(epsilon11 + sqrt(eps11Sq + gam13Sq))*(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0)))/pow(eps11Sq + 2*epsilon11*sqrt(eps11Sq + gam13Sq) + gam13Sq + pow(eps11Sq + gam13Sq, 1.0), 2) ;
+    dL63dEps(4) = 0 ;
+    // \gamma_{12} = 0, so all 0
 
     // eVal2
     if (eValsD1(1,1) != 0.0) {
@@ -662,32 +827,34 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
   } else if (!hasE11 && hasE12 && hasE13) {
     // case 4 - E11 is zero
     // \gamma_{12}
-    dL12dEps(3) = -2.0*gam13Sq*gamma12/pow(1.0*gam12Sq + gam13Sq, 2) ;
-    dL22dEps(3) = gamma12*(-4.0*gam12Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3);
-    dL32dEps(3) = gamma12*(-4.0*gam12Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3);
-    dL42dEps(3) = 0.17677669529663689*gamma12*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma13/gamma12) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL52dEps(3) = 0.17677669529663689*gamma12*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma13/gamma12) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL62dEps(3) = gamma12*(-8.0*gam12Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 4.0*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3);
-    dL13dEps(3) = 2.0*gam13Sq*gamma12/(1.0*pow(gam12Sq, 2) + 2.0*gam12Sq*gam13Sq + 1.0*pow(gam13Sq, 2)) ;
-    dL23dEps(3) = -4.0*gam13Sq*gamma12/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL12dEps(3) = 2.0*gamma12*(gam12Sq + gam13Sq - pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL22dEps(3) = gamma12*(-4.0*gam12Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3) ;
+    dL32dEps(3) = -4.0*gam13Sq*gamma12/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL42dEps(3) = pow(gam12Sq + gam13Sq, -0.5)*(8.0*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) - 2.0*gam12Sq*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) - 2.0*pow(gam12Sq + gam13Sq, 1.0)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL52dEps(3) = gamma12*gamma13*pow(gam12Sq + gam13Sq, -0.5)*(-2.0*gam12Sq - 2.0*gam13Sq + 6.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL62dEps(3) = gamma13*(-6.0*gam12Sq + 2.0*gam13Sq + 2.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    // col2
+    dL13dEps(3) = 2.0*gamma12*(gam12Sq + gam13Sq - pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL23dEps(3) = gamma12*(-4.0*gam12Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3) ;
     dL33dEps(3) = -4.0*gam13Sq*gamma12/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
-    dL43dEps(3) = -0.17677669529663689*gamma12*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma13/gamma12) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL53dEps(3) = -0.17677669529663689*gamma12*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma13/gamma12) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL63dEps(3) = -8.0*gam13Sq*gamma12/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2);
+    dL43dEps(3) = pow(gam12Sq + gam13Sq, -0.5)*(-8.0*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 2.0*gam12Sq*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2.0*pow(gam12Sq + gam13Sq, 1.0)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL53dEps(3) = gamma12*gamma13*pow(gam12Sq + gam13Sq, -0.5)*(2.0*gam12Sq + 2.0*gam13Sq - 6.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL63dEps(3) = gamma13*(-6.0*gam12Sq + 2.0*gam13Sq + 2.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
     // \gamma_{13}
-    dL12dEps(4) = 2.0*gam12Sq*gamma13/(1.0*pow(gam12Sq, 2) + 2.0*gam12Sq*gam13Sq + 1.0*pow(gam13Sq, 2));
-    dL22dEps(4) = -4.0*gam12Sq*gamma13/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2);
-    dL32dEps(4) = -4.0*gam12Sq*gamma13/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2);
-    dL42dEps(4) = 0.17677669529663689*gamma13*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12/gamma13) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL52dEps(4) = 0.17677669529663689*gamma13*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12/gamma13) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL62dEps(4) = -8.0*gam12Sq*gamma13/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2);
-    dL13dEps(4) = -2.0*gam12Sq*gamma13/pow(1.0*gam12Sq + gam13Sq, 2);
-    dL23dEps(4) = gamma13*(-4.0*gam13Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3);
-    dL33dEps(4) = gamma13*(-4.0*gam13Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3);
-    dL43dEps(4) = -0.17677669529663689*gamma13*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12/gamma13) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL53dEps(4) = -0.17677669529663689*gamma13*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam13Sq)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12/gamma13) + 4.0*(1.0*gam12Sq + gam13Sq)*fabs(gamma12*gamma13) + 2.0*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0))*fabs(gamma12*gamma13))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam13Sq + 0.5*gam12Sq*pow(gam12Sq + gam13Sq, 1.0) + 0.5*pow(gam13Sq, 2) + 0.5*gam13Sq*pow(gam12Sq + gam13Sq, 1.0), 5.0/2.0);
-    dL63dEps(4) = gamma13*(-8.0*gam13Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 4.0*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3);
-
+    dL12dEps(5) = 2.0*gamma13*(gam12Sq + gam13Sq - pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL22dEps(5) = -4.0*gam12Sq*gamma13/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL32dEps(5) = gamma13*(-4.0*gam13Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3) ;
+    dL42dEps(5) = gamma12*gamma13*pow(gam12Sq + gam13Sq, -0.5)*(-2.0*gam12Sq - 2.0*gam13Sq + 6.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL52dEps(5) = pow(gam12Sq + gam13Sq, -0.5)*(8.0*gam13Sq*pow(gam12Sq + gam13Sq, 1.0) - 2.0*gam13Sq*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) - 2.0*pow(gam12Sq + gam13Sq, 1.0)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL62dEps(5) = gamma12*(2.0*gam12Sq - 6.0*gam13Sq + 2.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    // col2
+    dL13dEps(5) = 2.0*gamma13*(gam12Sq + gam13Sq - pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL23dEps(5) = -4.0*gam12Sq*gamma13/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL33dEps(5) = gamma13*(-4.0*gam13Sq*(gam12Sq + gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 3) ;
+    dL43dEps(5) = gamma12*gamma13*pow(gam12Sq + gam13Sq, -0.5)*(2.0*gam12Sq + 2.0*gam13Sq - 6.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL53dEps(5) = pow(gam12Sq + gam13Sq, -0.5)*(-8.0*gam13Sq*pow(gam12Sq + gam13Sq, 1.0) + 2.0*gam13Sq*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)) + 2.0*pow(gam12Sq + gam13Sq, 1.0)*(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0)))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    dL63dEps(5) = gamma12*(2.0*gam12Sq - 6.0*gam13Sq + 2.0*pow(gam12Sq + gam13Sq, 1.0))/pow(gam12Sq + 1.0*gam13Sq + pow(gam12Sq + gam13Sq, 1.0), 2) ;
+    // \epsilon_{11} = 0, so all zero
     // eVal2
     if (eValsD1(1,1) != 0.0) {
       // if this is false
@@ -857,35 +1024,48 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   if (hasE22 && hasE12 && hasE23) {
     // case 1 - all D2 strains present
     // d L_{ij}/d \epsilon_k for this case
-    // \epsilon_{11}
+    // \epsilon_{22}
+    dL12dEps(1) = 0.50000000000000011*gam12Sq*1.0/rootE22Gam12Gam23*(eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
     dL22dEps(1) = pow(rootE22Gam12Gam23, -2.0)*(eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*eps22Sq + rootE22Gam12Gam23*(-1.0000000000000002*epsilon22 + 0.50000000000000011*rootE22Gam12Gam23)) - 1.0000000000000002*eps22Sq*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(2.0000000000000004*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(-1.0000000000000002*epsilon22*(1.0*eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23)) + rootE22Gam12Gam23*(0.50000000000000011*eps22Sq + rootE22Gam12Gam23*(-1.0000000000000002*epsilon22 + 0.50000000000000011*rootE22Gam12Gam23))))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
-    dL32dEps(1) = pow(rootE22Gam12Gam23, -2.0)*(-eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*eps22Sq + rootE22Gam12Gam23*(1.0000000000000002*epsilon22 + 0.50000000000000011*rootE22Gam12Gam23)) + 1.0000000000000002*eps22Sq*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(2.0000000000000004*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0000000000000002*epsilon22*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23)) + rootE22Gam12Gam23*(0.50000000000000011*eps22Sq + rootE22Gam12Gam23*(1.0000000000000002*epsilon22 + 0.50000000000000011*rootE22Gam12Gam23))))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
-    dL62dEps(1) = 1.0*epsilon22*(-eps22Sq*gam12Sq*pow(rootE22Gam12Gam23, 2.0) - eps22Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) + gam12Sq*pow(rootE22Gam12Gam23, 4.0) + gam23Sq*pow(rootE22Gam12Gam23, 4.0))/(sqrt(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*sqrt(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*(0.25*pow(eps22Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*eps22Sq*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*eps22Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*eps22Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(gam12Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam12Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(gam23Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(rootE22Gam12Gam23, 6.0))) ;
-    dL23dEps(1) = 0.50000000000000011*gam23Sq*1.0/rootE22Gam12Gam23*(eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL32dEps(1) = 0.50000000000000011*gam23Sq*1.0/rootE22Gam12Gam23*(eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL42dEps(1) = 1.0000000000000002*gamma12*pow(rootE22Gam12Gam23, -2.0)*(epsilon22*rootE22Gam12Gam23*(1.0*eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23)) - epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23)) + pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL52dEps(1) = 1.0000000000000002*gamma12*gamma23*1.0/rootE22Gam12Gam23*(1.0*eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL62dEps(1) = 1.0000000000000002*gamma23*pow(rootE22Gam12Gam23, -2.0)*(epsilon22*rootE22Gam12Gam23*(1.0*eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23)) - epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23)) + pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    // col2
+    dL13dEps(1) = 0.50000000000000011*gam12Sq*1.0/rootE22Gam12Gam23*(-eps22Sq - rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL23dEps(1) = pow(rootE22Gam12Gam23, -2.0)*(-eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*eps22Sq + rootE22Gam12Gam23*(1.0000000000000002*epsilon22 + 0.50000000000000011*rootE22Gam12Gam23)) + 1.0000000000000002*eps22Sq*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(2.0000000000000004*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0000000000000002*epsilon22*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23)) + rootE22Gam12Gam23*(0.50000000000000011*eps22Sq + rootE22Gam12Gam23*(1.0000000000000002*epsilon22 + 0.50000000000000011*rootE22Gam12Gam23))))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
     dL33dEps(1) = 0.50000000000000011*gam23Sq*1.0/rootE22Gam12Gam23*(-eps22Sq - rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
-    dL43dEps(1) = 0.70710678118654757*1.0/rootE22Gam12Gam23*(eps22Sq + rootE22Gam12Gam23*(-2.0*epsilon22 + rootE22Gam12Gam23))*fabs(gamma12*gamma23)/(sqrt(1.0*gam12Sq + gam23Sq)*pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)) ;
-    dL53dEps(1) = -0.70710678118654757*1.0/rootE22Gam12Gam23*(eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23))*fabs(gamma12*gamma23)/(sqrt(1.0*gam12Sq + gam23Sq)*pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)) ;
-    dL63dEps(1) = -1.0000000000000002*epsilon22*gam12Sq*gam23Sq/(pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)*pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)) - 1.0000000000000002*epsilon22*pow(gam23Sq, 2)/(pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)*pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)) ;
+    dL43dEps(1) = 1.0000000000000002*gamma12*pow(rootE22Gam12Gam23, -2.0)*(-epsilon22*rootE22Gam12Gam23*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23)) + epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23)) + pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL53dEps(1) = -1.0000000000000002*gamma12*gamma23*1.0/rootE22Gam12Gam23*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL63dEps(1) = 1.0000000000000002*gamma23*pow(rootE22Gam12Gam23, -2.0)*(-epsilon22*rootE22Gam12Gam23*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23)) + epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*eps22Sq + rootE22Gam12Gam23*(2.0*epsilon22 + rootE22Gam12Gam23)) + pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
     // \gamma_{12}
-    dL22dEps(3) = gamma12*pow(rootE22Gam12Gam23, -2.0)*(eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) - 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(-1.0000000000000002*epsilon22*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
-    dL32dEps(3) = gamma12*pow(rootE22Gam12Gam23, -2.0)*(-eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23) + 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0000000000000002*epsilon22*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
-    dL62dEps(3) = gamma12*(-0.5*pow(eps22Sq, 2)*pow(rootE22Gam12Gam23, 2.0) - 2.0*eps22Sq*gam12Sq*pow(rootE22Gam12Gam23, 2.0) - 2.0*eps22Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*pow(gam12Sq, 2)*pow(rootE22Gam12Gam23, 2.0) - 1.0*gam12Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*pow(gam23Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*pow(rootE22Gam12Gam23, 6.0))/(sqrt(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*sqrt(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*(0.25*pow(eps22Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*eps22Sq*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*eps22Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*eps22Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(gam12Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam12Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(gam23Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(rootE22Gam12Gam23, 6.0)));
-    dL13dEps(3) = 2.0*gam23Sq*gamma12/(1.0*pow(gam12Sq, 2) + 2.0*gam12Sq*gam23Sq + 1.0*pow(gam23Sq, 2));
-    dL23dEps(3) = gam23Sq*gamma12*1.0/rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
+    dL12dEps(3) = gamma12*1.0/rootE22Gam12Gam23*(gam12Sq*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*eps22Sq - 1.0000000000000002*epsilon22*rootE22Gam12Gam23 + 0.50000000000000011*gam12Sq + 0.50000000000000011*gam23Sq + 0.50000000000000011*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL22dEps(3) = gamma12*pow(rootE22Gam12Gam23, -2.0)*(eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) - 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(-1.0000000000000002*epsilon22*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL32dEps(3) = gam23Sq*gamma12*1.0/rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL42dEps(3) = 1.0000000000000002*pow(rootE22Gam12Gam23, -2.0)*(epsilon22*gam12Sq*rootE22Gam12Gam23*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) - gam12Sq*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - gam12Sq*pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + pow(rootE22Gam12Gam23, 2.0)*(epsilon22 - rootE22Gam12Gam23)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL52dEps(3) = 1.0000000000000002*gamma23*1.0/rootE22Gam12Gam23*(gam12Sq*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL62dEps(3) = 1.0000000000000002*gamma12*gamma23*pow(rootE22Gam12Gam23, -2.0)*(epsilon22*rootE22Gam12Gam23*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) - rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    // col2
+    dL13dEps(3) = gamma12*1.0/rootE22Gam12Gam23*(-0.50000000000000011*gam12Sq*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + 1.0000000000000002*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL23dEps(3) = gamma12*pow(rootE22Gam12Gam23, -2.0)*(-eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23) + 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0000000000000002*epsilon22*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
     dL33dEps(3) = gam23Sq*gamma12*1.0/rootE22Gam12Gam23*(-0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
-    dL43dEps(3) = 1.4142135623730951*gamma12*1.0/rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma23/gamma12) - rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma12*gamma23) + (0.5*epsilon22 - 1.0*rootE22Gam12Gam23)*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23))*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))/pow(0.5*eps22Sq*gam12Sq + 0.5*eps22Sq*gam23Sq - 1.0*epsilon22*gam12Sq*rootE22Gam12Gam23 - epsilon22*gam23Sq*rootE22Gam12Gam23 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam23Sq + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 2.0), 5.0/2.0);
-    dL53dEps(3) = -1.4142135623730951*gamma12*1.0/rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(-rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma23/gamma12) + rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma12*gamma23) + (0.5*epsilon22 + 1.0*rootE22Gam12Gam23)*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23))*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))/pow(0.5*eps22Sq*gam12Sq + 0.5*eps22Sq*gam23Sq + 1.0*epsilon22*gam12Sq*rootE22Gam12Gam23 + epsilon22*gam23Sq*rootE22Gam12Gam23 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam23Sq + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 2.0), 5.0/2.0);
-    dL63dEps(3) = gam23Sq*gamma12*1.0/rootE22Gam12Gam23*((0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - (0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/(pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)*pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0));
+    dL43dEps(3) = 1.0000000000000002*pow(rootE22Gam12Gam23, -2.0)*(-epsilon22*gam12Sq*rootE22Gam12Gam23*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + gam12Sq*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - gam12Sq*pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + pow(rootE22Gam12Gam23, 2.0)*(epsilon22 + rootE22Gam12Gam23)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL53dEps(3) = 1.0000000000000002*gamma23*1.0/rootE22Gam12Gam23*(-gam12Sq*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL63dEps(3) = 1.0000000000000002*gamma12*gamma23*pow(rootE22Gam12Gam23, -2.0)*(-epsilon22*rootE22Gam12Gam23*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
     // \gamma_{23}
-    dL22dEps(5) = gamma23*pow(rootE22Gam12Gam23, -2.0)*(eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) - 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(-1.0000000000000002*epsilon22*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
-    dL32dEps(5) = gamma23*pow(rootE22Gam12Gam23, -2.0)*(-eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23) + 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0000000000000002*epsilon22*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
-    dL62dEps(5) = gamma23*(-0.5*pow(eps22Sq, 2)*pow(rootE22Gam12Gam23, 2.0) - 2.0*eps22Sq*gam12Sq*pow(rootE22Gam12Gam23, 2.0) - 2.0*eps22Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*pow(gam12Sq, 2)*pow(rootE22Gam12Gam23, 2.0) - 1.0*gam12Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*pow(gam23Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*pow(rootE22Gam12Gam23, 6.0))/(sqrt(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*sqrt(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*(0.25*pow(eps22Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*eps22Sq*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*eps22Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) - 0.5*eps22Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(gam12Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam12Sq*gam23Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(gam23Sq, 2)*pow(rootE22Gam12Gam23, 2.0) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 4.0) + 0.25*pow(rootE22Gam12Gam23, 6.0)));
-    dL13dEps(5) = -2.0*gam12Sq*gamma23/pow(1.0*gam12Sq + gam23Sq, 2);
-    dL23dEps(5) = gamma23*1.0/rootE22Gam12Gam23*(gam23Sq*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*eps22Sq - 1.0000000000000002*epsilon22*rootE22Gam12Gam23 + 0.50000000000000011*gam12Sq + 0.50000000000000011*gam23Sq + 0.50000000000000011*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
-    dL33dEps(5) = gamma23*1.0/rootE22Gam12Gam23*(-0.50000000000000011*gam23Sq*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + 1.0000000000000002*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2);
-    dL43dEps(5) = 1.4142135623730951*gamma23*1.0/rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma12/gamma23) - rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma12*gamma23) + (0.5*epsilon22 - 1.0*rootE22Gam12Gam23)*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23))*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))/pow(0.5*eps22Sq*gam12Sq + 0.5*eps22Sq*gam23Sq - 1.0*epsilon22*gam12Sq*rootE22Gam12Gam23 - epsilon22*gam23Sq*rootE22Gam12Gam23 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam23Sq + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 2.0), 5.0/2.0);
-    dL53dEps(5) = -1.4142135623730951*gamma23*1.0/rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(-rootE22Gam12Gam23*(1.0*gam12Sq + gam23Sq)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma12/gamma23) + rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*fabs(gamma12*gamma23) + (0.5*epsilon22 + 1.0*rootE22Gam12Gam23)*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23))*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))/pow(0.5*eps22Sq*gam12Sq + 0.5*eps22Sq*gam23Sq + 1.0*epsilon22*gam12Sq*rootE22Gam12Gam23 + epsilon22*gam23Sq*rootE22Gam12Gam23 + 0.5*pow(gam12Sq, 2) + 1.0*gam12Sq*gam23Sq + 0.5*gam12Sq*pow(rootE22Gam12Gam23, 2.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(rootE22Gam12Gam23, 2.0), 5.0/2.0);
-    dL63dEps(5) = gamma23*pow(rootE22Gam12Gam23, -2.0)*(1.0000000000000002*gam23Sq*rootE22Gam12Gam23*(0.5*epsilon22 - 1.0*rootE22Gam12Gam23)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - 1.0000000000000002*gam23Sq*rootE22Gam12Gam23*(0.5*epsilon22 + 1.0*rootE22Gam12Gam23)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + 2.0000000000000004*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0))*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/(pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0)*pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 3.0/2.0));
+    dL12dEps(5) = gam12Sq*gamma23*1.0/rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL22dEps(5) = gamma23*pow(rootE22Gam12Gam23, -2.0)*(eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) - 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) + pow(rootE22Gam12Gam23, 2.0)*(-1.0000000000000002*epsilon22*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL32dEps(5) = gamma23*1.0/rootE22Gam12Gam23*(gam23Sq*(0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*eps22Sq - 1.0000000000000002*epsilon22*rootE22Gam12Gam23 + 0.50000000000000011*gam12Sq + 0.50000000000000011*gam23Sq + 0.50000000000000011*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL42dEps(5) = 1.0000000000000002*gamma12*gamma23*pow(rootE22Gam12Gam23, -2.0)*(epsilon22*rootE22Gam12Gam23*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) - rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL52dEps(5) = 1.0000000000000002*gamma12*1.0/rootE22Gam12Gam23*(gam23Sq*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL62dEps(5) = 1.0000000000000002*pow(rootE22Gam12Gam23, -2.0)*(epsilon22*gam23Sq*rootE22Gam12Gam23*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) - gam23Sq*rootE22Gam12Gam23*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - gam23Sq*pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 - 2.0*rootE22Gam12Gam23) + pow(rootE22Gam12Gam23, 2.0)*(epsilon22 - rootE22Gam12Gam23)*(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq - epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    // col2
+    dL13dEps(5) = gam12Sq*gamma23*1.0/rootE22Gam12Gam23*(-0.50000000000000011*epsilon22 - 1.0000000000000002*rootE22Gam12Gam23)/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL23dEps(5) = gamma23*pow(rootE22Gam12Gam23, -2.0)*(-eps22Sq*rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23) + 1.0000000000000002*epsilon22*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0000000000000002*epsilon22*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.50000000000000011*epsilon22 + 1.0000000000000002*rootE22Gam12Gam23)) + 1.0000000000000002*pow(rootE22Gam12Gam23, 2.0)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL33dEps(5) = gamma23*1.0/rootE22Gam12Gam23*(-0.50000000000000011*gam23Sq*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + 1.0000000000000002*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL43dEps(5) = 1.0000000000000002*gamma12*gamma23*pow(rootE22Gam12Gam23, -2.0)*(-epsilon22*rootE22Gam12Gam23*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL53dEps(5) = 1.0000000000000002*gamma12*1.0/rootE22Gam12Gam23*(-gam23Sq*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
+    dL63dEps(5) = 1.0000000000000002*pow(rootE22Gam12Gam23, -2.0)*(-epsilon22*gam23Sq*rootE22Gam12Gam23*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + gam23Sq*rootE22Gam12Gam23*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)) - gam23Sq*pow(rootE22Gam12Gam23, 2.0)*(1.0*epsilon22 + 2.0*rootE22Gam12Gam23) + pow(rootE22Gam12Gam23, 2.0)*(epsilon22 + rootE22Gam12Gam23)*(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0)))/pow(0.5*eps22Sq + epsilon22*rootE22Gam12Gam23 + 0.5*gam12Sq + 0.5*gam23Sq + 0.5*pow(rootE22Gam12Gam23, 2.0), 2) ;
 
     // eVal2
     if (eValsD2(1,1) != 0.0) {
@@ -906,14 +1086,34 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   } else if (hasE22 && hasE12 && !hasE23) {
     // case 2 - E23 is zero
     // \epsilon_{22}
-    dL22dEps(1) = gam12Sq*(-2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(-4.0*epsilon22 - 2.0*sqrt(eps22Sq + gam12Sq)))*pow(eps22Sq + gam12Sq, -0.5)/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2);
-    dL32dEps(1) = gam12Sq*pow(eps22Sq + gam12Sq, -0.5)*(2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(-4.0*epsilon22 + 2.0*sqrt(eps22Sq + gam12Sq)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2);
-    dL62dEps(1) = -8.0*epsilon22*pow(gam12Sq, 2)*sqrt(eps22Sq + gam12Sq)/(sqrt(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0))*sqrt(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0))*(1.0*pow(eps22Sq, 2)*sqrt(eps22Sq + gam12Sq) + 2.0*eps22Sq*gam12Sq*sqrt(eps22Sq + gam12Sq) - 2.0*eps22Sq*pow(eps22Sq + gam12Sq, 1.5) + 1.0*pow(gam12Sq, 2)*sqrt(eps22Sq + gam12Sq) + 2.0*gam12Sq*pow(eps22Sq + gam12Sq, 1.5) + 1.0*pow(eps22Sq + gam12Sq, 2.5)));
-
+    dL12dEps(1) = gam12Sq*(2.0*eps22Sq*sqrt(eps22Sq + gam12Sq) + 4.0*epsilon22*pow(eps22Sq + gam12Sq, 1.0) + 2.0*pow(eps22Sq + gam12Sq, 1.5))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*eps22Sq*gam12Sq*pow(eps22Sq + gam12Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam12Sq, 2.0) + 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam12Sq, 1.5) + 4.0*epsilon22*gam12Sq*pow(eps22Sq + gam12Sq, 1.5) + 4.0*epsilon22*pow(eps22Sq + gam12Sq, 2.5) + 1.0*pow(gam12Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps22Sq + gam12Sq, 2.0) + 1.0*pow(eps22Sq + gam12Sq, 3.0)) ;
+    dL22dEps(1) = gam12Sq*(-2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(-4.0*epsilon22 - 2.0*sqrt(eps22Sq + gam12Sq)))*pow(eps22Sq + gam12Sq, -0.5)/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL32dEps(1) = 0 ;
+    dL42dEps(1) = 2.0*gamma12*1.0/(eps22Sq + gam12Sq)*(epsilon22*sqrt(eps22Sq + gam12Sq)*(2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(4.0*epsilon22 + 2*sqrt(eps22Sq + gam12Sq))) - epsilon22*sqrt(eps22Sq + gam12Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)) + pow(eps22Sq + gam12Sq, 1.0)*(2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(4.0*epsilon22 + 2*sqrt(eps22Sq + gam12Sq))) - pow(eps22Sq + gam12Sq, 1.0)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL52dEps(1) = 0 ;
+    dL62dEps(1) = 0 ;
+    // col2
+    dL13dEps(1) = gam12Sq*(-2.0*eps22Sq*sqrt(eps22Sq + gam12Sq) + 4.0*epsilon22*pow(eps22Sq + gam12Sq, 1.0) - 2.0*pow(eps22Sq + gam12Sq, 1.5))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*eps22Sq*gam12Sq*pow(eps22Sq + gam12Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam12Sq, 2.0) - 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam12Sq, 1.5) - 4.0*epsilon22*gam12Sq*pow(eps22Sq + gam12Sq, 1.5) - 4.0*epsilon22*pow(eps22Sq + gam12Sq, 2.5) + 1.0*pow(gam12Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps22Sq + gam12Sq, 2.0) + 1.0*pow(eps22Sq + gam12Sq, 3.0)) ;
+    dL23dEps(1) = gam12Sq*pow(eps22Sq + gam12Sq, -0.5)*(2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(-4.0*epsilon22 + 2.0*sqrt(eps22Sq + gam12Sq)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL33dEps(1) = 0 ;
+    dL43dEps(1) = 2.0*gamma12*1.0/(eps22Sq + gam12Sq)*(-epsilon22*sqrt(eps22Sq + gam12Sq)*(2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(-4.0*epsilon22 + 2*sqrt(eps22Sq + gam12Sq))) + epsilon22*sqrt(eps22Sq + gam12Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)) + pow(eps22Sq + gam12Sq, 1.0)*(2.0*eps22Sq + sqrt(eps22Sq + gam12Sq)*(-4.0*epsilon22 + 2*sqrt(eps22Sq + gam12Sq))) - pow(eps22Sq + gam12Sq, 1.0)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL53dEps(1) = 0 ;
+    dL63dEps(1) = 0 ;
     // \gamma_{12}
-    dL22dEps(3) = gamma12*pow(eps22Sq + gam12Sq, -0.5)*(-1.0*gam12Sq*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam12Sq)) + 2.0*sqrt(eps22Sq + gam12Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2);
-    dL32dEps(3) = gamma12*pow(eps22Sq + gam12Sq, -0.5)*(1.0*gam12Sq*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam12Sq)) + 2.0*sqrt(eps22Sq + gam12Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2);
-    dL62dEps(3) = gamma12*(4.0*pow(eps22Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 8.0*eps22Sq*gam12Sq*pow(eps22Sq + gam12Sq, 1.0) - 8.0*eps22Sq*pow(eps22Sq + gam12Sq, 2.0) - 4.0*pow(gam12Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 4.0*pow(eps22Sq + gam12Sq, 3.0))/(sqrt(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0))*sqrt(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0))*(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*eps22Sq*gam12Sq*pow(eps22Sq + gam12Sq, 1.0) - 2.0*eps22Sq*pow(eps22Sq + gam12Sq, 2.0) + 1.0*pow(gam12Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps22Sq + gam12Sq, 2.0) + 1.0*pow(eps22Sq + gam12Sq, 3.0)));
+    dL12dEps(3) = gamma12*(-2.0*eps22Sq*pow(eps22Sq + gam12Sq, 1.0) + 2.0*epsilon22*gam12Sq*sqrt(eps22Sq + gam12Sq) - 4.0*epsilon22*pow(eps22Sq + gam12Sq, 1.5) + 2.0*gam12Sq*pow(eps22Sq + gam12Sq, 1.0) - 2.0*pow(eps22Sq + gam12Sq, 2.0))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*eps22Sq*gam12Sq*pow(eps22Sq + gam12Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam12Sq, 2.0) + 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam12Sq, 1.5) + 4.0*epsilon22*gam12Sq*pow(eps22Sq + gam12Sq, 1.5) + 4.0*epsilon22*pow(eps22Sq + gam12Sq, 2.5) + 1.0*pow(gam12Sq, 2)*pow(eps22Sq + gam12Sq, 1.0) + 2.0*gam12Sq*pow(eps22Sq + gam12Sq, 2.0) + 1.0*pow(eps22Sq + gam12Sq, 3.0)) ;
+    dL22dEps(3) = gamma12*pow(eps22Sq + gam12Sq, -0.5)*(-1.0*gam12Sq*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam12Sq)) + 2.0*sqrt(eps22Sq + gam12Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL32dEps(3) = 0 ;
+    dL42dEps(3) = 2.0*1.0/(eps22Sq + gam12Sq)*(epsilon22*gam12Sq*sqrt(eps22Sq + gam12Sq)*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam12Sq)) - gam12Sq*sqrt(eps22Sq + gam12Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)) + gam12Sq*pow(eps22Sq + gam12Sq, 1.0)*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam12Sq)) - pow(eps22Sq + gam12Sq, 1.0)*(epsilon22 + sqrt(eps22Sq + gam12Sq))*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL52dEps(3) = 0 ;
+    dL62dEps(3) = 0 ;
+    // col2
+    dL13dEps(3) = gamma12*1.0/(eps22Sq + gam12Sq)*(eps22Sq*sqrt(eps22Sq + gam12Sq)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam12Sq)) - 2.0*epsilon22*sqrt(eps22Sq + gam12Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)) + pow(eps22Sq + gam12Sq, 1.0)*(-2.0*epsilon22 + sqrt(eps22Sq + gam12Sq))*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam12Sq)) + 2.0*pow(eps22Sq + gam12Sq, 1.0)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL23dEps(3) = gamma12*pow(eps22Sq + gam12Sq, -0.5)*(1.0*gam12Sq*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam12Sq)) + 2.0*sqrt(eps22Sq + gam12Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL33dEps(3) = 0 ;
+    dL43dEps(3) = 2.0*1.0/(eps22Sq + gam12Sq)*(-epsilon22*gam12Sq*sqrt(eps22Sq + gam12Sq)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam12Sq)) + gam12Sq*sqrt(eps22Sq + gam12Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)) + gam12Sq*pow(eps22Sq + gam12Sq, 1.0)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam12Sq)) + pow(eps22Sq + gam12Sq, 1.0)*(-epsilon22 + sqrt(eps22Sq + gam12Sq))*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam12Sq) + gam12Sq + pow(eps22Sq + gam12Sq, 1.0), 2) ;
+    dL53dEps(3) = 0 ;
+    dL63dEps(3) = 0 ;
+    // \gamma_{23} = 0, so all zero
 
     // eVal2
     if (eValsD2(1,1) != 0.0) {
@@ -932,21 +1132,35 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   } else if (hasE22 && !hasE12 && hasE23) {
     // case 3 - E12 is zero
     // \epsilon_{22}
-    dL22dEps(1) = gam23Sq*(-2.0*eps22Sq*sqrt(eps22Sq + gam23Sq) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 1.0) - 2.0*pow(eps22Sq + gam23Sq, 1.5))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) - 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam23Sq, 1.5) - 4.0*epsilon22*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) - 4.0*epsilon22*pow(eps22Sq + gam23Sq, 2.5) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0));
-    dL32dEps(1) = gam23Sq*(2.0*eps22Sq*sqrt(eps22Sq + gam23Sq) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 1.0) + 2.0*pow(eps22Sq + gam23Sq, 1.5))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 2.5) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0));
-    dL62dEps(1) = 8.0*epsilon22*gam23Sq*(-eps22Sq*pow(eps22Sq + gam23Sq, 1.0) + pow(eps22Sq + gam23Sq, 2.0))/(sqrt(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*sqrt(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 2.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0)));
-    dL23dEps(1) = gam23Sq*pow(eps22Sq + gam23Sq, -0.5)*(2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(-4.0*epsilon22 + 2.0*sqrt(eps22Sq + gam23Sq)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
-    dL33dEps(1) = gam23Sq*(-2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(-4.0*epsilon22 - 2.0*sqrt(eps22Sq + gam23Sq)))*pow(eps22Sq + gam23Sq, -0.5)/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2);
-    dL63dEps(1) = -8.0*epsilon22*pow(gam23Sq, 2)*sqrt(eps22Sq + gam23Sq)/(sqrt(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*sqrt(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*(1.0*pow(eps22Sq, 2)*sqrt(eps22Sq + gam23Sq) + 2.0*eps22Sq*gam23Sq*sqrt(eps22Sq + gam23Sq) - 2.0*eps22Sq*pow(eps22Sq + gam23Sq, 1.5) + 1.0*pow(gam23Sq, 2)*sqrt(eps22Sq + gam23Sq) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) + 1.0*pow(eps22Sq + gam23Sq, 2.5)));
-
+    dL12dEps(1) = 0 ;
+    dL22dEps(1) = gam23Sq*(-2.0*eps22Sq*sqrt(eps22Sq + gam23Sq) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 1.0) - 2.0*pow(eps22Sq + gam23Sq, 1.5))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) - 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam23Sq, 1.5) - 4.0*epsilon22*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) - 4.0*epsilon22*pow(eps22Sq + gam23Sq, 2.5) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0)) ;
+    dL32dEps(1) = gam23Sq*pow(eps22Sq + gam23Sq, -0.5)*(2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(-4.0*epsilon22 + 2.0*sqrt(eps22Sq + gam23Sq)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    dL42dEps(1) = 0 ;
+    dL52dEps(1) = 0 ;
+    dL62dEps(1) = 2.0*gamma23*1.0/(eps22Sq + gam23Sq)*(epsilon22*sqrt(eps22Sq + gam23Sq)*(2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(-4.0*epsilon22 + 2*sqrt(eps22Sq + gam23Sq))) - epsilon22*sqrt(eps22Sq + gam23Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)) - pow(eps22Sq + gam23Sq, 1.0)*(2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(-4.0*epsilon22 + 2*sqrt(eps22Sq + gam23Sq))) + pow(eps22Sq + gam23Sq, 1.0)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    // col2
+    dL13dEps(1) = 0 ;
+    dL23dEps(1) = gam23Sq*(2.0*eps22Sq*sqrt(eps22Sq + gam23Sq) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 1.0) + 2.0*pow(eps22Sq + gam23Sq, 1.5))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 2.5) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0)) ;
+    dL33dEps(1) = gam23Sq*(-2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(-4.0*epsilon22 - 2.0*sqrt(eps22Sq + gam23Sq)))*pow(eps22Sq + gam23Sq, -0.5)/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    dL43dEps(1) = 0 ;
+    dL53dEps(1) = 0 ;
+    dL63dEps(1) = 2.0*gamma23*1.0/(eps22Sq + gam23Sq)*(-epsilon22*sqrt(eps22Sq + gam23Sq)*(2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(4.0*epsilon22 + 2*sqrt(eps22Sq + gam23Sq))) + epsilon22*sqrt(eps22Sq + gam23Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)) - pow(eps22Sq + gam23Sq, 1.0)*(2.0*eps22Sq + sqrt(eps22Sq + gam23Sq)*(4.0*epsilon22 + 2*sqrt(eps22Sq + gam23Sq))) + pow(eps22Sq + gam23Sq, 1.0)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
     // \gamma_{23}
-    dL22dEps(5) = gamma23*1.0/(eps22Sq + gam23Sq)*(eps22Sq*sqrt(eps22Sq + gam23Sq)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) - 2.0*epsilon22*sqrt(eps22Sq + gam23Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)) + pow(eps22Sq + gam23Sq, 1.0)*(-2.0*epsilon22 + sqrt(eps22Sq + gam23Sq))*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) + 2.0*pow(eps22Sq + gam23Sq, 1.0)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2);
-    dL32dEps(5) = gamma23*(-2.0*eps22Sq*pow(eps22Sq + gam23Sq, 1.0) + 2.0*epsilon22*gam23Sq*sqrt(eps22Sq + gam23Sq) - 4.0*epsilon22*pow(eps22Sq + gam23Sq, 1.5) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 2.0*pow(eps22Sq + gam23Sq, 2.0))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 2.5) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0));
-    dL62dEps(5) = gamma23*(-4.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) - 16.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 4.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 4.0*pow(eps22Sq + gam23Sq, 3.0))/(sqrt(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*sqrt(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 2.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0)));
-    dL23dEps(5) = gamma23*pow(eps22Sq + gam23Sq, -0.5)*(1.0*gam23Sq*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) + 2.0*sqrt(eps22Sq + gam23Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2);
-    dL33dEps(5) = gamma23*pow(eps22Sq + gam23Sq, -0.5)*(-1.0*gam23Sq*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam23Sq)) + 2.0*sqrt(eps22Sq + gam23Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2);
-    dL63dEps(5) = gamma23*(4.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 8.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 8.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) - 4.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 4.0*pow(eps22Sq + gam23Sq, 3.0))/(sqrt(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*sqrt(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0))*(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 2.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0)));
+    dL12dEps(5) = 0 ;
+    dL22dEps(5) = gamma23*1.0/(eps22Sq + gam23Sq)*(eps22Sq*sqrt(eps22Sq + gam23Sq)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) - 2.0*epsilon22*sqrt(eps22Sq + gam23Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)) + pow(eps22Sq + gam23Sq, 1.0)*(-2.0*epsilon22 + sqrt(eps22Sq + gam23Sq))*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) + 2.0*pow(eps22Sq + gam23Sq, 1.0)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    dL32dEps(5) = gamma23*pow(eps22Sq + gam23Sq, -0.5)*(1.0*gam23Sq*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) + 2.0*sqrt(eps22Sq + gam23Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    dL42dEps(5) = 0 ;
+    dL52dEps(5) = 0 ;
+    dL62dEps(5) = 2.0*1.0/(eps22Sq + gam23Sq)*(epsilon22*gam23Sq*sqrt(eps22Sq + gam23Sq)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) - gam23Sq*sqrt(eps22Sq + gam23Sq)*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)) - gam23Sq*pow(eps22Sq + gam23Sq, 1.0)*(2.0*epsilon22 - 4.0*sqrt(eps22Sq + gam23Sq)) + pow(eps22Sq + gam23Sq, 1.0)*(epsilon22 - sqrt(eps22Sq + gam23Sq))*(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq - 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    // col2
+    dL13dEps(5) = 0 ;
+    dL23dEps(5) = gamma23*(-2.0*eps22Sq*pow(eps22Sq + gam23Sq, 1.0) + 2.0*epsilon22*gam23Sq*sqrt(eps22Sq + gam23Sq) - 4.0*epsilon22*pow(eps22Sq + gam23Sq, 1.5) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) - 2.0*pow(eps22Sq + gam23Sq, 2.0))/(1.0*pow(eps22Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*eps22Sq*gam23Sq*pow(eps22Sq + gam23Sq, 1.0) + 6.0*eps22Sq*pow(eps22Sq + gam23Sq, 2.0) + 4.0*pow(epsilon22, 3)*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*gam23Sq*pow(eps22Sq + gam23Sq, 1.5) + 4.0*epsilon22*pow(eps22Sq + gam23Sq, 2.5) + 1.0*pow(gam23Sq, 2)*pow(eps22Sq + gam23Sq, 1.0) + 2.0*gam23Sq*pow(eps22Sq + gam23Sq, 2.0) + 1.0*pow(eps22Sq + gam23Sq, 3.0)) ;
+    dL33dEps(5) = gamma23*pow(eps22Sq + gam23Sq, -0.5)*(-1.0*gam23Sq*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam23Sq)) + 2.0*sqrt(eps22Sq + gam23Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
+    dL43dEps(5) = 0 ;
+    dL53dEps(5) = 0 ;
+    dL63dEps(5) = 2.0*1.0/(eps22Sq + gam23Sq)*(-epsilon22*gam23Sq*sqrt(eps22Sq + gam23Sq)*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam23Sq)) + gam23Sq*sqrt(eps22Sq + gam23Sq)*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)) - gam23Sq*pow(eps22Sq + gam23Sq, 1.0)*(2.0*epsilon22 + 4.0*sqrt(eps22Sq + gam23Sq)) + pow(eps22Sq + gam23Sq, 1.0)*(epsilon22 + sqrt(eps22Sq + gam23Sq))*(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0)))/pow(eps22Sq + 2*epsilon22*sqrt(eps22Sq + gam23Sq) + gam23Sq + pow(eps22Sq + gam23Sq, 1.0), 2) ;
 
+    // \gamma_{12} = 0.0, so all zero
     // eVal2
     if (eValsD2(1,1) != 0.0) {
       // if this is false
@@ -966,26 +1180,36 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
   } else if (!hasE22 && hasE12 && hasE23) {
     // case 4 - E22 is zero
     // \gamma_{12}
-    dL22dEps(3) = 2.0*gamma12*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL32dEps(3) = 2.0*gamma12*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL62dEps(3) = 4.0*gamma12*(-gam12Sq - gam23Sq + pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL13dEps(3) = 2.0*gam23Sq*gamma12/(1.0*pow(gam12Sq, 2) + 2.0*gam12Sq*gam23Sq + 1.0*pow(gam23Sq, 2));
-    dL23dEps(3) = -4.0*gam23Sq*gamma12/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL33dEps(3) = -4.0*gam23Sq*gamma12/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL43dEps(3) = -0.17677669529663689*gamma12*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma23/gamma12) + 4.0*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23) + 2.0*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma12*gamma23))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam23Sq + 0.5*gam12Sq*pow(gam12Sq + gam23Sq, 1.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(gam12Sq + gam23Sq, 1.0), 5.0/2.0);
-    dL53dEps(3) = -0.17677669529663689*gamma12*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma23/gamma12) + 4.0*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23) + 2.0*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma12*gamma23))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam23Sq + 0.5*gam12Sq*pow(gam12Sq + gam23Sq, 1.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(gam12Sq + gam23Sq, 1.0), 5.0/2.0);
-    dL63dEps(3) = -8.0*gam23Sq*gamma12/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
+    dL12dEps(3) = gamma12*(-4.0*gam12Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3) ;
+    dL22dEps(3) = 2.0*gamma12*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL32dEps(3) = -4.0*gam23Sq*gamma12/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL42dEps(3) = pow(gam12Sq + gam23Sq, -0.5)*(8.0*gam12Sq*pow(gam12Sq + gam23Sq, 1.0) - 2.0*gam12Sq*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) - 2.0*pow(gam12Sq + gam23Sq, 1.0)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL52dEps(3) = gamma23*(-6.0*gam12Sq + 2.0*gam23Sq + 2.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL62dEps(3) = gamma12*gamma23*pow(gam12Sq + gam23Sq, -0.5)*(-2.0*gam12Sq - 2.0*gam23Sq + 6.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    // col2
+    dL13dEps(3) = gamma12*(-4.0*gam12Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3) ;
+    dL23dEps(3) = 2.0*gamma12*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL33dEps(3) = -4.0*gam23Sq*gamma12/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL43dEps(3) = pow(gam12Sq + gam23Sq, -0.5)*(-8.0*gam12Sq*pow(gam12Sq + gam23Sq, 1.0) + 2.0*gam12Sq*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2.0*pow(gam12Sq + gam23Sq, 1.0)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL53dEps(3) = gamma23*(-6.0*gam12Sq + 2.0*gam23Sq + 2.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL63dEps(3) = gamma12*gamma23*pow(gam12Sq + gam23Sq, -0.5)*(2.0*gam12Sq + 2.0*gam23Sq - 6.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
     // \gamma_{23}
-    dL22dEps(5) = 2.0*gamma23*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL32dEps(5) = 2.0*gamma23*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL62dEps(5) = 4.0*gamma23*(-gam12Sq - gam23Sq + pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2);
-    dL13dEps(5) = -2.0*gam12Sq*gamma23/pow(1.0*gam12Sq + gam23Sq, 2);
-    dL23dEps(5) = gamma23*(-4.0*gam23Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3);
-    dL33dEps(5) = gamma23*(-4.0*gam23Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3);
-    dL43dEps(5) = -0.17677669529663689*gamma23*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma12/gamma23) + 4.0*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23) + 2.0*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma12*gamma23))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam23Sq + 0.5*gam12Sq*pow(gam12Sq + gam23Sq, 1.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(gam12Sq + gam23Sq, 1.0), 5.0/2.0);
-    dL53dEps(5) = -0.17677669529663689*gamma23*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*(-2.0*(1.0*gam12Sq + gam23Sq)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma12/gamma23) + 4.0*(1.0*gam12Sq + gam23Sq)*fabs(gamma12*gamma23) + 2.0*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0))*fabs(gamma12*gamma23))/pow(0.5*pow(gam12Sq, 2) + gam12Sq*gam23Sq + 0.5*gam12Sq*pow(gam12Sq + gam23Sq, 1.0) + 0.5*pow(gam23Sq, 2) + 0.5*gam23Sq*pow(gam12Sq + gam23Sq, 1.0), 5.0/2.0);
-    dL63dEps(5) = gamma23*(-8.0*gam23Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 4.0*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3);
+    dL12dEps(5) = -4.0*gam12Sq*gamma23/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL22dEps(5) = 2.0*gamma23*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL32dEps(5) = gamma23*(-4.0*gam23Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3) ;
+    dL42dEps(5) = gamma12*gamma23*pow(gam12Sq + gam23Sq, -0.5)*(-2.0*gam12Sq - 2.0*gam23Sq + 6.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL52dEps(5) = gamma12*(2.0*gam12Sq - 6.0*gam23Sq + 2.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL62dEps(5) = pow(gam12Sq + gam23Sq, -0.5)*(8.0*gam23Sq*pow(gam12Sq + gam23Sq, 1.0) - 2.0*gam23Sq*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) - 2.0*pow(gam12Sq + gam23Sq, 1.0)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    // col2
+    dL13dEps(5) = -4.0*gam12Sq*gamma23/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL23dEps(5) = 2.0*gamma23*(gam12Sq + gam23Sq - pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL33dEps(5) = gamma23*(-4.0*gam23Sq*(gam12Sq + gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2.0*pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 3) ;
+    dL43dEps(5) = gamma12*gamma23*pow(gam12Sq + gam23Sq, -0.5)*(2.0*gam12Sq + 2.0*gam23Sq - 6.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL53dEps(5) = gamma12*(2.0*gam12Sq - 6.0*gam23Sq + 2.0*pow(gam12Sq + gam23Sq, 1.0))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
+    dL63dEps(5) = pow(gam12Sq + gam23Sq, -0.5)*(-8.0*gam23Sq*pow(gam12Sq + gam23Sq, 1.0) + 2.0*gam23Sq*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)) + 2.0*pow(gam12Sq + gam23Sq, 1.0)*(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0)))/pow(gam12Sq + 1.0*gam23Sq + pow(gam12Sq + gam23Sq, 1.0), 2) ;
 
+    
+    // \epsilon_{22} = 0, so all 0
     // eVal2
     if (eValsD2(1,1) != 0.0) {
       // if this is false
@@ -1231,8 +1455,12 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   dz6dEpsD2(3) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(1);
   //dEpsD*_i / dEps_j
   Matrix6d dEpsD1dEps = Matrix6d::Zero(), dEpsD2dEps = Matrix6d::Zero(); 
-  calcDEpsD1PlusDEps(epsD1Plus, dEpsD1dEps);
-  calcDEpsD2PlusDEps(epsD2Plus, dEpsD2dEps);
+  // these are used to calc epsD1/2Plus, so derivative should be there
+  Vector6d epsD1 = Vector6d::Zero(), epsD2 = Vector6d::Zero();
+  epsD1(0) = epsStar(0); epsD1(3) = epsStar(3); epsD1(4) = epsStar(4);
+  epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
+  calcDEpsD1PlusDEps(epsD1, dEpsD1dEps);
+  calcDEpsD2PlusDEps(epsD2, dEpsD2dEps);
  
   // MatrixVectorProd
   Vector6d dz1dEps = dEpsD1dEps.transpose()*dz1dEpsD1;

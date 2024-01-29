@@ -8,12 +8,30 @@
 
 #include "model_opendm.hpp"
 
-
 // Some things of note:
 // Abaqus stress conv: S11, S22, S33, S12, S13, S23
 //
 using std::cout;
 using std::endl;
+
+#define CHECK_TANG_EVALS 1
+
+#ifdef CHECK_TANG_EVALS
+#include <Eigen/Eigenvalues>
+inline void checkTangEvals(Matrix6d& matTang) {
+  Eigen::EigenSolver<Matrix6d> eigensolver(matTang);
+  std::complex<double> eVal;
+  for (int iEig = 0; iEig < 6; ++iEig) {
+    eVal = eigensolver.eigenvalues().col(0)[iEig];
+    if (real(eVal) <= 100.) {
+      cout << "eVal = " << eVal << endl; 
+      cout << "matTang = \n" << matTang << endl; 
+      throw std::runtime_error("Negative eVal!!!");
+    }
+  }
+}
+#endif
+
 
 /********************************************************************/
 /********************************************************************/
@@ -36,7 +54,7 @@ OpenDMModel::OpenDMModel(double* props, int* nprops, double* statev,
       std::cout << "OpenDMModel::OpenDMModel: NOT ENOUGH PROPS!!!"
         " using 4 param model " << std::endl;
     }
-    if ((*nstatv) != 17) {
+    if ((*nstatv) != 29) {
       std::cout << "NOT ENOUGH STATEVARS!!!"
         " using 4 param model " << std::endl;
     }
@@ -51,10 +69,6 @@ OpenDMModel::OpenDMModel(double* props, int* nprops, double* statev,
   Matrix6d Ctemp = Matrix6d::Zero();
   matrixInverse(S0, Ctemp);
   C0 = Ctemp;
-
-  // set stateVars
-  unpackStateVars(statev);
- 
 }
 /********************************************************************/
 /********************************************************************/
@@ -92,7 +106,7 @@ void OpenDMModel::unpackStateVars(double* statev) {
   CeffOld(3,3) = statev[6];
   CeffOld(4,4) = statev[7];
   CeffOld(5,5) = statev[8];
-  // statev[9:9+nDamageVars] = yiMaxOld
+  // statev[9:9+nDamageVars] = yMaxOld
   yMaxSave.resize(nDamageVars);
   for (int iY = 0; iY < nDamageVars; iY++) {
     yMaxSave(iY) = statev[9+iY];
@@ -136,8 +150,8 @@ void OpenDMModel::updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
 /********************************************************************/
 
 void OpenDMModel::setUMATOuts(const Vector6d& sig, const Vector6d& epsStar,
-                  const Matrix6d& matTang, double* stress,
-                  double* ddsdde, double* sse) const {
+                              const Matrix6d& matTang, double* stress,
+                              double* ddsdde, double* sse) const {
   // assign vector positions to pointer outs
   //
   for (int iRow = 0; iRow < 6; iRow++) {
@@ -158,8 +172,8 @@ void OpenDMModel::setUMATOuts(const Vector6d& sig, const Vector6d& epsStar,
 /********************************************************************/
 
 void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
-               double* statev, double* ddsdde, double* sse,
-               double* spd, double* scd) {
+                           double* statev, double* ddsdde, double* sse,
+                           double* spd, double* scd) {
   // Calculate y, g, d, Ceff, upStress, matTang
   //
 
@@ -196,8 +210,13 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   // calcTangent
   Matrix6d matTang = Matrix6d::Zero();
   computeMatTang(Ceff, epsStar, epsD1Plus, epsD2Plus, yMaxVals,
-         gVals, matTang);
+                 gVals, matTang);
 
+#ifdef CHECK_TANG_EVALS
+  checkTangEvals(matTang);
+#endif
+
+  
   // Update stateVars (yMax, Ceff)
   updateStateVars(yMaxVals, Ceff, dVals, statev);
 
@@ -230,4 +249,3 @@ void OpenDMModel::calcDVals(const VectorXd& gVals, VectorXd& dVals) const {
 }
 /********************************************************************/
 /********************************************************************/
-

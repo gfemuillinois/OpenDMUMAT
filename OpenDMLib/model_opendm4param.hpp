@@ -24,6 +24,21 @@ public:
   // delete operator= (should never be used)
   OpenDMModel4Param& operator=(const OpenDMModel4Param&)=delete;
 
+  /** @brief unpack stateVars from UMAT call
+   */
+  virtual void unpackStateVars(double* statev) override;
+
+  /** @brief update statevars ater run
+   */
+  virtual void updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
+               const VectorXd& dVals, double* statev) override;
+
+  /** @brief calculate yMax_i for given strain
+   */
+  virtual VectorXd calcDrivingForces(const Vector6d& epsStar,
+                                     Vector6d& epsD1Plus,
+                                     Vector6d& epsD2Plus) override;
+
 
 private:
 
@@ -37,16 +52,9 @@ private:
   void createTEpsMats();
 
   /** @brief Create H_i matrices for computing Seff
-   * NOTE: this does not include stress activation!!!
    */
   void createHMats();
   
-  /** @brief calculate yMax_i for given strain
-   */
-  virtual VectorXd calcDrivingForces(const Vector6d& epsStar,
-                                     Vector6d& epsD1Plus,
-                                     Vector6d& epsD2Plus) override;
-
   /** @brief calculate positive part of D1 strains
    */
   void posPartStrainD1(const Vector6d& epsD1, Vector6d& epsD1Plus);

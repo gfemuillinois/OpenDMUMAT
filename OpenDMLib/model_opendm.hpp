@@ -50,6 +50,15 @@ protected:
     return stressVal > 0.0 ? 1.0 : 0.0;
   }
 
+  /** @brief unpack stateVars from UMAT call
+   */
+  virtual void unpackStateVars(double* statev);
+
+  /** @brief update statevars ater run
+   */
+  virtual void updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
+                               const VectorXd& dVals, double* statev);
+
   // number of damage variables for a given model
   // 2Param or 4Param
   const int nDamageVars;
@@ -71,15 +80,6 @@ private:
   /** @brief computeS0 from UMAT array props
    */
   void computeS0(double* props);
-
-   /** @brief unpack stateVars from UMAT call
-   */
-  void unpackStateVars(double* statev);
-
-  /** @brief update statevars ater run
-   */
-  void updateStateVars(const VectorXd& yMax, const Matrix6d& Ceff,
-               const VectorXd& dVals, double* statev);
 
   /** @brief set outputs from UMAT
    */
