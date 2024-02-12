@@ -2218,24 +2218,36 @@
  500, 500, 1.50, 1.50, 1.38, 1.38, 1.39, 1.39,
  5.16, 5.16,     
 *DEPVAR
- 17
+ 29
 1, CEff11, "CEff11"
-2, CEff22, "CEff22"
-3, CEff33, "CEff33"
-4, CEff23, "CEff23"
-5, CEff13, "CEff13"
-6, CEff12, "CEff12"
-7, CEff44, "CEff44"
-8, CEff55, "CEff55"
-9, CEff66, "CEff66"
-10, Y1Max, "Y1Max"
-11, Y2Max, "Y2Max"
-12, Y4Max, "Y4Max"
-13, Y5Max, "Y5Max"
-14, d1, "d1"
-15, d2, "d2"
-16, d4, "d4"
-17, d5, "d5"
+2, CEff11, "CEff12"
+3, CEff11, "CEff13"
+4, CEff11, "CEff14"
+5, CEff11, "CEff15"
+6, CEff11, "CEff16"
+7, CEff22, "CEff22"
+8, CEff22, "CEff23"
+9, CEff22, "CEff24"
+10, CEff22, "CEff25"
+11, CEff22, "CEff26"
+12, CEff33, "CEff33"
+13, CEff33, "CEff34"
+14, CEff33, "CEff35"
+15, CEff33, "CEff36"
+16, CEff44, "CEff44"
+17, CEff44, "CEff45"
+18, CEff44, "CEff46"
+19, CEff55, "CEff55"
+20, CEff55, "CEff56"
+21, CEff66, "CEff66"
+22, Y1Max, "Y1Max"
+23, Y2Max, "Y2Max"
+24, Y4Max, "Y4Max"
+25, Y5Max, "Y5Max"
+26, d1, "d1"
+27, d2, "d2"
+28, d4, "d4"
+29, d5, "d5"
 ** ----------------------------------------------------------------
 ** 
 ** STEP: Pull
@@ -2268,7 +2280,9 @@ _PickedSet7, 3, 3
 *Output, field, variable=PRESELECT
 *ELEMENT OUTPUT
  SDV1, SDV2, SDV3, SDV4, SDV5, SDV6, SDV7, SDV8, SDV9,
- SDV10, SDV11, SDV12, SDV13, SDV14, SDV15, SDV16, SDV17
+ SDV10, SDV11, SDV12, SDV13, SDV14, SDV15, SDV16, SDV17,
+ SDV18, SDV19, SDV20, SDV21, SDV22, SDV23, SDV24, SDV25,
+ SDV26, SDV27, SDV28, SDV29
 ** 
 ** HISTORY OUTPUT: H-Output-1
 ** 
