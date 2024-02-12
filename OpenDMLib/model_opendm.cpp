@@ -13,19 +13,27 @@
 //
 using std::cout;
 using std::endl;
+using std::complex;
 
 #define CHECK_TANG_EVALS 1
 
 #ifdef CHECK_TANG_EVALS
 #include <Eigen/Eigenvalues>
-inline void checkTangEvals(Matrix6d& matTang) {
+inline void checkTangEvals(Matrix6d& matTang, Vector6d& epsStar) {
   Eigen::EigenSolver<Matrix6d> eigensolver(matTang);
   std::complex<double> eVal;
   for (int iEig = 0; iEig < 6; ++iEig) {
     eVal = eigensolver.eigenvalues().col(0)[iEig];
-    if (real(eVal) <= 100.) {
-      cout << "eVal = " << eVal << endl; 
+    if (real(eVal) <= 0.1) {
+      cout << "epsStar = \n" << epsStar << endl; 
       cout << "matTang = \n" << matTang << endl; 
+      cout << "eVals = \n" << eigensolver.eigenvalues().col(0) << endl; 
+      // eigenvectors
+      Eigen::Matrix<complex<double>, 6, 6> eVect = eigensolver.eigenvectors();
+      // transform back from spectral
+      Eigen::Matrix<complex<double>, 6, 1>  epsSpect = eVect*epsStar;
+      cout << "epsSpect = \n" << epsSpect << endl; 
+      break;
       throw std::runtime_error("Negative eVal!!!");
     }
   }
@@ -212,8 +220,9 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   computeMatTang(Ceff, epsStar, epsD1Plus, epsD2Plus, yMaxVals,
                  gVals, matTang);
 
+  Matrix6d symTang = 0.5*(matTang + matTang.transpose());
 #ifdef CHECK_TANG_EVALS
-  checkTangEvals(matTang);
+  checkTangEvals(symTang, epsStar);
 #endif
 
   
@@ -223,7 +232,7 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   // update stress, tang, energies
   // Neglecting scd, no time effects
   // TODO: Also skipping spd for now
-  setUMATOuts(sig, epsStar, matTang, stress, ddsdde, sse);
+  setUMATOuts(sig, epsStar, symTang, stress, ddsdde, sse);
 }
 /********************************************************************/
 /********************************************************************/
@@ -249,3 +258,52 @@ void OpenDMModel::calcDVals(const VectorXd& gVals, VectorXd& dVals) const {
 }
 /********************************************************************/
 /********************************************************************/
+
+void OpenDMModel::computeNumMatTang(const Matrix6d& Ceff,
+                                    const Vector6d& epsStar,
+                                    const Vector6d& stress,
+                                    Matrix6d& numMatTang) {
+  // Compute numerical material tangent via repeated stressCalcs
+  // at assigned strain perturbations
+  //
+  const double strainPert = 5.0e-7;
+  // initialize strain
+  Vector6d epsPert = Vector6d::Zero();
+  // loop over perturbations
+  for (unsigned int iPert = 0; iPert < 6; ++iPert) {
+    // set to step strain
+    epsPert = epsStar;
+    // perturb strain entry
+    epsPert[iPert] += strainPert;
+    // cout << "perturbed strain = " << epsPert << endl;
+    // update yMax attribute values here
+    VectorXd yMaxVals(nDamageVars),
+      gVals(nDamageVars), dVals(nDamageVars);
+  
+    // Strains specific to damage modes
+    Vector6d epsD1Plus = Vector6d::Zero(), epsD2Plus = Vector6d::Zero();
+    yMaxVals = calcDrivingForces(epsPert, epsD1Plus, epsD2Plus);
+    // get g and d values
+    calcGVals(yMaxVals, gVals);
+    calcDVals(gVals, dVals);
+    // cout << "yMaxSave = " << yMaxSave(0) << yMaxSave(1) << yMaxSave(2) << yMaxSave(3) << endl;
+    // cout << "yMax = " << yMaxVals(0) << yMaxVals(1) << yMaxVals(2) << yMaxVals(3) << endl;
+    // cout << "d = " << dVals(0) << dVals(1) << dVals(2) << dVals(3) << endl;
+
+    // Get Seff, Ceff
+    Matrix6d Seff = Matrix6d::Zero();
+    computeSEff(stress, dVals, Seff);
+    Matrix6d Ceff = Matrix6d::Zero();
+    matrixInverse(Seff, Ceff);
+    // cout << "Ceff = \n" << Ceff << endl;
+
+    // calcStress
+    Vector6d sigPert = Ceff*epsPert;
+    // cout << "perturbed stress = " << sigPert << endl;
+    // numMatTang components
+    for (unsigned int iStress = 0; iStress < 6; ++iStress) {
+      numMatTang(iPert, iStress) = (sigPert(iStress) - stress(iStress))/strainPert;
+    }
+  }
+
+}

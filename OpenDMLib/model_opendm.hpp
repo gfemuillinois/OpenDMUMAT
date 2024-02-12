@@ -47,7 +47,7 @@ protected:
    */
   double stressAct(const double& stressVal) const {
     // Heaviside from stressVal
-    return stressVal > 0.0 ? 1.0 : 0.0;
+    return stressVal >= 0.0 ? 1.0 : 0.0;
   }
 
   /** @brief unpack stateVars from UMAT call
@@ -117,6 +117,14 @@ private:
                   const VectorXd& yMaxVals,
                   const VectorXd& gVals,
                   Matrix6d& matTang)=0;
+
+  /** @brief compute numerical material tangent stiffness
+   *  done via strain perturbations
+   */
+  void computeNumMatTang(const Matrix6d& Ceff,
+                         const Vector6d& epsStar,
+                         const Vector6d& stress,
+                         Matrix6d& numMatTang);
 
 };
 #endif
