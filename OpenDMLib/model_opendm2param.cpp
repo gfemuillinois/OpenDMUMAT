@@ -6,6 +6,7 @@
 //
 
 #include "model_opendm2param.hpp"
+#include <unsupported/Eigen/CXX11/Tensor>
 #include <iostream>
 
 /********************************************************************/
@@ -32,13 +33,13 @@ void OpenDMModel2Param::unpackParams(double* props) {
   // props[9:20] = h_s1, h_s2, b_1, b_2, y01, y02,
   // yc1, yc2, pe1, pe2, dc1, dc2
   // unpack props
-  hs1 = Eigen::Map<Eigen::VectorXd>(props+9,1);
-  hs2 = Eigen::Map<Eigen::VectorXd>(props+10,1);
-  b = Eigen::Map<Eigen::VectorXd>(props+11,2);
-  y0 = Eigen::Map<Eigen::VectorXd>(props+13,2);
-  yc = Eigen::Map<Eigen::VectorXd>(props+15,2);
-  pe = Eigen::Map<Eigen::VectorXd>(props+17,2);
-  dc = Eigen::Map<Eigen::VectorXd>(props+19,2);
+  hs1 = Eigen::Map<Eigen::VectorXd>(props+9,3);
+  hs2 = Eigen::Map<Eigen::VectorXd>(props+12,3);
+  b = Eigen::Map<Eigen::VectorXd>(props+15,2);
+  y0 = Eigen::Map<Eigen::VectorXd>(props+17,2);
+  yc = Eigen::Map<Eigen::VectorXd>(props+19,2);
+  pe = Eigen::Map<Eigen::VectorXd>(props+21,2);
+  dc = Eigen::Map<Eigen::VectorXd>(props+23,2);
 }
 /********************************************************************/
 /********************************************************************/
@@ -49,18 +50,18 @@ void OpenDMModel2Param::createH1H2() {
   H2 = Matrix6d::Zero();
   // H1
   // Mode I
-  H1(0,0) = S0(0,0);
+  H1(0,0) = hs1(0)*S0(0,0);
   // Mode III
-  H1(3,3) = hs1(0)*S0(3,3);
+  H1(3,3) = hs1(1)*S0(3,3);
   // Mode II
-  H1(4,4) = hs1(0)*S0(4,4);
+  H1(4,4) = hs1(2)*S0(4,4);
   // H2
   // Mode I
-  H2(1,1) = S0(1,1);
+  H2(1,1) = hs2(0)*S0(1,1);
   // Mode II
-  H2(3,3) = hs2(0)*S0(3,3);
+  H2(3,3) = hs2(1)*S0(3,3);
   // Mode III
-  H2(5,5) = hs2(0)*S0(5,5);
+  H2(5,5) = hs2(2)*S0(5,5);
 
 }
 /********************************************************************/
@@ -84,13 +85,17 @@ VectorXd OpenDMModel2Param::calcDrivingForces(const Vector6d& epsStar,
   double E11 = 1.0/S0(0,0);
   double E22 = 1.0/S0(1,1);
   double G12 = C0(3,3);
+  double G13 = C0(4,4);
+  double G23 = C0(5,5);
 
   double e11 = epsD1Plus(0);
   double e22 = epsD1Plus(1);
   double g12 = epsD1Plus(3);
+  double g13 = epsD1Plus(4);
+  double g23 = epsD1Plus(5);
   
-  double y1 = 0.5*(E11*e11*e11 + b(0)*G12*g12*g12);
-  double y2 = 0.5*(E22*e22*e22 + b(1)*G12*g12*g12);
+  double y1 = 0.5*(E11*e11*e11 + b(0)*G12*g12*g12 + b(1)*G13*g13*g13);
+  double y2 = 0.5*(E22*e22*e22 + b(0)*G12*g12*g12 + b(1)*G23*g23*g23);
 
   VectorXd yMax(2);
   yMax(0) = y1 > yMaxSave(0) ? y1 : yMaxSave(0);
@@ -159,20 +164,49 @@ void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& eps
   dy2de(3) = b(1)*1.0/S0(3,3)*epsD1Plus(3);
 
   // Combine scalar derivs to vect
-  Vector6d dd1de = Vector6d::Zero(), dd2de = Vector6d::Zero();
-  dd1de = dd1dg1*dg1dy1*dy1de;
-  dd2de = dd2dg2*dg2dy2*dy2de;
+  Vector6d dd1dEps = Vector6d::Zero(), dd2dEps = Vector6d::Zero();
+  dd1dEps = dd1dg1*dg1dy1*dy1de;
+  dd2dEps = dd2dg2*dg2dy2*dy2de;
 
-  // MatrixVectorProd
-  Vector6d dInvSeff1de = Vector6d::Zero(), dInvSeff2de = Vector6d::Zero();
-  dInvSeff1de = dInvSeffdd1*dd1de;
-  dInvSeff2de = dInvSeffdd2*dd2de;
-
-  // dCeff/de
-  Vector6d dCeffde = dInvSeff1de + dInvSeff2de;
-
+  // 3rd order tensors Seff and Ceff
+  Eigen::Tensor<double,3> dSeffdEps(6,6,6), dCeffdEps(6,6,6);
+  dSeffdEps.setZero(); dCeffdEps.setZero();
+  // d Seff_{ij} / dEps_k
+  for (int iInd = 0; iInd < 6; iInd++) {
+    for (int jInd = 0; jInd < 6; jInd++) {
+      for (int kInd = 0; kInd < 6; kInd++) {
+        dSeffdEps(iInd,jInd,kInd) = dd1dEps(kInd)*H1(iInd, jInd) +
+          dd2dEps(kInd)*H2(iInd, jInd);
+      }
+    }
+  }
+  // dCeff_{ij} / dEps_k
+  for (int iInd = 0; iInd < 6; iInd++) {
+    for (int jInd = 0; jInd < 6; jInd++) {
+      for (int kInd = 0; kInd < 6; kInd++) {
+        for (int lInd = 0; lInd < 6; lInd++) {
+          for (int mInd = 0; mInd < 6; mInd++) {
+            dCeffdEps(iInd,jInd,kInd) +=
+              -1.0*Ceff(iInd,lInd)*dSeffdEps(lInd,mInd,kInd)*Ceff(mInd,jInd);
+          }
+        }
+      }
+    }
+  }
+  
+  // dCeff_{ij}/dEps_k . Eps_j
+  Matrix6d dCeffdEpsDotEps = Matrix6d::Zero();
+  for (int iInd = 0; iInd < 6; iInd++) {
+    for (int jInd = 0; jInd < 6; jInd++) {
+      for (int kInd = 0; kInd < 6; kInd++) {
+        dCeffdEpsDotEps(iInd, jInd) += dCeffdEps(iInd,kInd,jInd)*epsStar(kInd);
+      }
+    }
+  }
+  // cout << "dCeffdEpsDotEps = \n" << dCeffdEpsDotEps.transpose() << endl;
   // Material Tangent = dCeff/de . e + Ceff
-  matTang = dCeffde*epsStar.transpose() + Ceff;
+  // NOTE: as formulated, tangent is not sym, making sym here
+  matTang = dCeffdEpsDotEps.transpose() + Ceff;
 
 }
 /********************************************************************/

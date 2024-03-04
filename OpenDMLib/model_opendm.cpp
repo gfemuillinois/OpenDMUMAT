@@ -49,7 +49,7 @@ OpenDMModel::OpenDMModel(double* props, int* nprops, double* statev,
   : nDamageVars(nDVarsIn) {
 
   if (nDVarsIn == 2) {
-    if ((*nprops) != 21) {
+    if ((*nprops) != 25) {
       std::cout << "OpenDMModel::OpenDMModel: NOT ENOUGH PROPS!!!"
         " using 2 param model " << std::endl;
     }
@@ -197,7 +197,7 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   // Estimate stress for activation functions
   Vector6d stressEst = CeffOld*epsStar;
   
-    // update yMax attribute values here
+  // update yMax attribute values here
   VectorXd yMaxVals(nDamageVars),
     gVals(nDamageVars), dVals(nDamageVars);
   
@@ -219,6 +219,9 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
   Matrix6d matTang = Matrix6d::Zero();
   computeMatTang(Ceff, epsStar, epsD1Plus, epsD2Plus, yMaxVals,
                  gVals, matTang);
+  // computeNumMatTang(Ceff, epsStar, sig, matTang);
+  // cout << "Ceff = \n" << Ceff << endl;
+  // cout << "matTang = \n" << matTang << endl;
 
   Matrix6d symTang = 0.5*(matTang + matTang.transpose());
 #ifdef CHECK_TANG_EVALS
@@ -307,3 +310,6 @@ void OpenDMModel::computeNumMatTang(const Matrix6d& Ceff,
   }
 
 }
+/********************************************************************/
+/********************************************************************/
+

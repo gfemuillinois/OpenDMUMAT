@@ -54,6 +54,10 @@ private:
   /** @brief Create H_i matrices for computing Seff
    */
   void createHMats();
+
+  /** @brief calculate positive part of full strains
+   */
+  void posPartStrain(const Vector6d& eps, Vector6d& epsPlus);
   
   /** @brief calculate positive part of D1 strains
    */
@@ -78,7 +82,7 @@ private:
   /** @brief calculate damage effect tensor H1, H2
    */
   virtual void computeSEff(const Vector6d& stressEst, const VectorXd& dVals,
-               Matrix6d& Seff) override;
+                           Matrix6d& Seff) override;
 
   /** @brief compute analytical material tangent stiffness
    */

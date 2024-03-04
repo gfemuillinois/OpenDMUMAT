@@ -10,9 +10,10 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 #include "model_opendm4param.hpp"
 #include <cmath>
+#include <complex>
 
 // macro for zero strains
-#define effZeroStrain 1.0e-7
+#define effZeroStrain 1.0e-9
 
 using std::sqrt;
 using std::cout;
@@ -20,6 +21,8 @@ using std::endl;
 using std::abs;
 using std::pow;
 using std::isnan;
+using std::complex;
+using std::real;
 
 /********************************************************************/
 /********************************************************************/
@@ -203,7 +206,6 @@ void OpenDMModel4Param::createHMats() {
   H2(5,5) = hs2(2)*S0(5,5);
 
   // transform S0 for H4 & H5
-  // NOTE: It so happens that:
   Matrix6d S_p45, S_n45;
   S_p45 = Teps_p45*S0*Teps_p45.transpose();
   S_n45 = Teps_n45*S0*Teps_n45.transpose();
@@ -247,6 +249,8 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar,
   epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
   posPartStrainD1(epsD1, epsD1Plus);
   posPartStrainD2(epsD2, epsD2Plus);
+  // Vector6d epsPlus = Vector6d::Zero();
+  // posPartStrain(epsStar, epsPlus);
   
   // Base driving force
   double z1 = 0.5*(epsD1Plus(0)*C0(0,0)*epsD1Plus(0)
@@ -273,8 +277,40 @@ VectorXd OpenDMModel4Param::calcDrivingForces(const Vector6d& epsStar,
   yMax(3) = y5 > yMaxSave(3) ? y5 : yMaxSave(3);
   // std::cout << "z = " << z1 << " " << z2 << " "
             // << z6 << std::endl;
-  // std::cout << "yMax = " << yMax(0) << " " << yMax(1) << std::endl;
+  // std::cout << "yMax = " << yMax << std::endl;
   return yMax;
+}
+/********************************************************************/
+/********************************************************************/
+
+void OpenDMModel4Param::posPartStrain(const Vector6d& eps,
+                                      Vector6d& epsPlus) {
+  // Calculate the positive part of the full strain tensor
+  Matrix3d epsTens = Matrix3d::Zero();
+  // unpack abq into tensor
+  epsTens(0,0) = eps(0); epsTens(1,1) = eps(1); epsTens(2,2) = eps(2);
+  epsTens(0,1) = 0.5*eps(3); epsTens(0,2) = 0.5*eps(4); epsTens(1,2) = eps(5);
+  epsTens(1,0) = 0.5*eps(3); epsTens(2,0) = 0.5*eps(4); epsTens(2,1) = eps(5);
+  Eigen::EigenSolver<Matrix3d> eigensolver(epsTens);
+  Eigen::Matrix<complex<double>, 3, 3> epsTensSpect;
+  // get spectral form of epsilon
+  epsTensSpect = eigensolver.eigenvalues().asDiagonal();
+  // eigenvectors
+  Eigen::Matrix<complex<double>, 3, 3> eVect = eigensolver.eigenvectors();
+  // zero out negative eVals
+  complex<double> complexZero = 0.0;
+  epsTensSpect(0,0) = real(epsTensSpect(0,0)) >= 0.0 ? epsTensSpect(0,0) : complexZero;
+  epsTensSpect(1,1) = real(epsTensSpect(1,1)) >= 0.0 ? epsTensSpect(1,1) : complexZero;
+  epsTensSpect(2,2) = real(epsTensSpect(2,2)) >= 0.0 ? epsTensSpect(2,2) : complexZero;
+  // transform back from spectral
+  Eigen::Matrix<complex<double>, 3, 3> epsilonPlus = eVect*epsTensSpect*eVect.transpose();
+  // unpack into Abq notation
+  epsPlus(0) = abs(epsilonPlus(0,0)) > effZeroStrain ? real(epsilonPlus(0,0)) : 0.0;
+  epsPlus(1) = abs(epsilonPlus(1,1)) > effZeroStrain ? real(epsilonPlus(1,1)) : 0.0;
+  epsPlus(2) = abs(epsilonPlus(2,2)) > effZeroStrain ? real(epsilonPlus(2,2)) : 0.0;
+  epsPlus(3) = abs(epsilonPlus(0,1)) > effZeroStrain? 2.0*real(epsilonPlus(0, 1)) : 0.0;
+  epsPlus(4) = abs(epsilonPlus(0,2)) > effZeroStrain? 2.0*real(epsilonPlus(0, 2)) : 0.0;
+  epsPlus(5) = abs(epsilonPlus(1,2)) > effZeroStrain? 2.0*real(epsilonPlus(1, 2)) : 0.0;
 }
 /********************************************************************/
 /********************************************************************/
@@ -397,7 +433,7 @@ void OpenDMModel4Param::posPartStrainD1(const Vector6d& epsD1,
     // v1
     eVectsD1(0,1) = 1.0;
     // v2
-    eVectsD1(1,0) = 1.0;
+    eVectsD1(1,0) = -1.0;
     // v3
     eVectsD1(2,2) = 1.0;
   } else if (!hasE11 && hasE12 && !hasE13) {
@@ -669,7 +705,7 @@ void OpenDMModel4Param::calcDEpsD1PlusDEps(const Vector6d& epsD1,
     gam13Sq = gamma13*gamma13;
   const double rootE11Gam12Gam13 =
     std::sqrt(eps11Sq + gam12Sq + gam13Sq);
-  if (hasE11 && hasE12 && hasE13) {
+  if ((hasE11 && hasE12) || (hasE11 && hasE13) || (hasE12 && hasE13)) {
     // case 1 - all D1 strains present
     // d L_{ij}/d \epsilon_k for this case
     // \epsilon_{11}
@@ -1021,7 +1057,7 @@ void OpenDMModel4Param::calcDEpsD2PlusDEps(const Vector6d& epsD2,
     gam23Sq = gamma23*gamma23;
   const double rootE22Gam12Gam23 =
     std::sqrt(eps22Sq + gam12Sq + gam23Sq);
-  if (hasE22 && hasE12 && hasE23) {
+  if (hasE22 && hasE12 && hasE23 ) { //(hasE22 && hasE12) || (hasE22 && hasE23) || (hasE12 && hasE23)) {
     // case 1 - all D2 strains present
     // d L_{ij}/d \epsilon_k for this case
     // \epsilon_{22}
@@ -1407,6 +1443,8 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
     *exp(-1.0*pow(gVals(2),pe(2)));
   double dd5dg5 = pe(3)*dc(3)*pow(gVals(3), pe(3) - 1.0)
     *exp(-1.0*pow(gVals(3),pe(3)));
+  // cout << "dddg = " << dd1dg1 << " " << dd2dg2 << " "
+       // << dd4dg4 << " " << dd5dg5 << endl;
   
   // dg/dy
   // if yMax < yMaxOld, yMax = yMaxOld, dg/dy = 0.0
@@ -1423,6 +1461,9 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   if (yMaxVals(3) > yMaxSave(3)) {
     dg5dy5 = 0.5*1.0/sqrt(yMaxVals(3)*yc(3));
   }
+  // cout << "dgdy = " << dg1dy1 << " " << dg2dy2 << " "
+       // << dg4dy4 << " " << dg5dy5 << endl;
+
 
   // dz/dEpsD1/D2
   double z6 = 0.25*(epsD1Plus(0)*C0(0,0)*epsD1Plus(3)
@@ -1436,7 +1477,9 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   double dy2dz6 = z6 > 0.0 ? -1.0 : 1.0;
   double dy4dz6 = z6 > 0.0 ? 1.0 : 0.0,
     dy5dz6 = z6 < 0.0 ? -1.0 : 0.0;
-  
+  // cout << "dydz = " << dy1dz1 << " " << dy2dz2 << " "
+       // << dy1dz6 << " " << dy2dz6 << " " << dy4dz6 << " " << dy5dz6 << endl;
+ 
   Vector6d dz1dEpsD1 = Vector6d::Zero(), dz2dEpsD2 = Vector6d::Zero(),
     dz6dEpsD1 = Vector6d::Zero(), dz6dEpsD2 = Vector6d::Zero();
   // z1
@@ -1453,7 +1496,11 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   //z6 - epsD2
   dz6dEpsD2(1) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(3);
   dz6dEpsD2(3) = 0.25*(C0(1,1) + b(2)*C0(3,3))*epsD2Plus(1);
-  //dEpsD*_i / dEps_j
+  // cout << "dz1dEpsD1 = " << dz1dEpsD1 << endl;
+  // cout << "dz2dEpsD2 = " << dz2dEpsD2 << endl;
+  // cout << "dz6dEpsD1 = " << dz6dEpsD1 << endl;
+  // cout << "dz6dEpsD2 = " << dz6dEpsD2 << endl;
+//dEpsD*_i / dEps_j
   Matrix6d dEpsD1dEps = Matrix6d::Zero(), dEpsD2dEps = Matrix6d::Zero(); 
   // these are used to calc epsD1/2Plus, so derivative should be there
   Vector6d epsD1 = Vector6d::Zero(), epsD2 = Vector6d::Zero();
@@ -1461,18 +1508,27 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   epsD2(1) = epsStar(1); epsD2(3) = epsStar(3); epsD2(5) = epsStar(5);
   calcDEpsD1PlusDEps(epsD1, dEpsD1dEps);
   calcDEpsD2PlusDEps(epsD2, dEpsD2dEps);
- 
+  // cout<< "dEpsD1dEps = " << dEpsD1dEps << endl;
+  // cout << "dEpsD2dEps = " << dEpsD2dEps << endl;
   // MatrixVectorProd
   Vector6d dz1dEps = dEpsD1dEps.transpose()*dz1dEpsD1;
   Vector6d dz2dEps = dEpsD2dEps.transpose()*dz2dEpsD2;
   Vector6d dz6dEps = dEpsD1dEps.transpose()*dz6dEpsD1 +
     dEpsD2dEps.transpose()*dz6dEpsD2;
+  // cout << "dz1dEps = " << dz1dEps << endl;
+  // cout << "dz2dEps = " << dz2dEps << endl;
+  // cout << "dz6dEps = " << dz6dEps << endl;
+ 
 
   // d d^m / dEps_k
   Vector6d dd1dEps = dd1dg1*dg1dy1*(dy1dz1*dz1dEps + dy1dz6*dz6dEps);
   Vector6d dd2dEps = dd2dg2*dg2dy2*(dy2dz2*dz2dEps + dy2dz6*dz6dEps);
   Vector6d dd4dEps = dd4dg4*dg4dy4*dy4dz6*dz6dEps;
   Vector6d dd5dEps = dd5dg5*dg5dy5*dy5dz6*dz6dEps;
+  // cout << "dd1dEps = " << dd1dEps << endl;
+  // cout << "dd2dEps = " << dd2dEps << endl;
+  // cout << "dd4dEps = " << dd4dEps << endl;
+  // cout << "dd5dEps = " << dd5dEps << endl;
   // NOTE: dz1/dEpsD1 -> 6x1, dEpsD1/dEps -> 6x6
   // dEpsD1_i/dEps_j * dz1/dEpsD1_i is what I want
 
@@ -1513,9 +1569,10 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
       }
     }
   }
+  // cout << "dCeffdEpsDotEps = \n" << dCeffdEpsDotEps.transpose() << endl;
   // Material Tangent = dCeff/de . e + Ceff
   // NOTE: as formulated, tangent is not sym, making sym here
-  matTang = 0.5*(dCeffdEpsDotEps + dCeffdEpsDotEps.transpose()) + Ceff;
+  matTang = dCeffdEpsDotEps.transpose() + Ceff;
 }
 /********************************************************************/
 /********************************************************************/
