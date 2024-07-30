@@ -16,6 +16,8 @@ if( OpenDM_Exec AND OpenDM_Lib)
   message(FATAL_ERROR "Please Make only an executable or shared lib!!!")
 endif()
 
+# Option to use numerical tangent or analytical
+option(OpenDM_USE_NUM_TANG "Use numerical tangent stiffness" ON)
 
 if (${OpenDM_Exec})
   add_executable(openDMUmat ${OpenDMUmat_SRCS})

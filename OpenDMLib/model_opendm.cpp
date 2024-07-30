@@ -15,9 +15,9 @@ using std::cout;
 using std::endl;
 using std::complex;
 
-#define CHECK_TANG_EVALS 1
+#define CHECK_TANG_EVALS 0
 
-#ifdef CHECK_TANG_EVALS
+#if CHECK_TANG_EVALS
 #include <Eigen/Eigenvalues>
 inline void checkTangEvals(Matrix6d& matTang, Vector6d& epsStar) {
   Eigen::EigenSolver<Matrix6d> eigensolver(matTang);
@@ -217,14 +217,18 @@ void OpenDMModel::runModel(double* strain, double* dstrain, double* stress,
 
   // calcTangent
   Matrix6d matTang = Matrix6d::Zero();
+#if defined USE_NUM_TANG
+  computeNumMatTang(Ceff, epsStar, sig, matTang);
+#else
   computeMatTang(Ceff, epsStar, epsD1Plus, epsD2Plus, yMaxVals,
                  gVals, matTang);
-  // computeNumMatTang(Ceff, epsStar, sig, matTang);
+#endif
   // cout << "Ceff = \n" << Ceff << endl;
   // cout << "matTang = \n" << matTang << endl;
 
+  // NOTE: as formulated, tangent is not sym, making sym here
   Matrix6d symTang = 0.5*(matTang + matTang.transpose());
-#ifdef CHECK_TANG_EVALS
+#if CHECK_TANG_EVALS
   checkTangEvals(symTang, epsStar);
 #endif
 

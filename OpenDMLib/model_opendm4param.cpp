@@ -1428,7 +1428,6 @@ void OpenDMModel4Param::computeMatTang(const Matrix6d& Ceff,
   // dCeff/de = d(inv(Seff))/d(d)*d(d)/dg*dg/dy*dy/dz*dz/de
   // (sum for each d_i)
   //
-
   // Get H4&5 into global coords
   Matrix6d globH4 = Teps_n45*H4*Teps_n45.transpose();
   Matrix6d globH5 = Teps_p45*H5*Teps_p45.transpose();

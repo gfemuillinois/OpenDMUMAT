@@ -21,6 +21,11 @@ message("OpenDMLib_HEADER=${OpenDMLib_HEADER}")
 message("OpenDMLib_INCLUDE_DIRS=${OpenDMLib_INCLUDE_DIRS}")
 message("EIGEN_HEADERS=${EIGEN_HEADERS}")
 
+if (OpenDM_USE_NUM_TANG)
+   message(WARNING "Using numerical tangent!!!")
+   add_compile_definitions(-DUSE_NUM_TANG)
+endif()
+
 # Make lib
 add_library(openDMLib STATIC ${OpenDMLib_SRCS})
 target_include_directories(openDMLib PRIVATE ${OpenDMLib_INCLUDE_DIRS})

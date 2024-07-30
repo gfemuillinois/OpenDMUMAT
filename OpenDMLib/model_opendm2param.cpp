@@ -81,21 +81,14 @@ VectorXd OpenDMModel2Param::calcDrivingForces(const Vector6d& epsStar,
     epsD1Plus(iRow) = macaulayBracketPlus(epsStar(iRow));
   }
 
-  // EQ 32 in OpenDM-Simple CLT doc
-  double E11 = 1.0/S0(0,0);
-  double E22 = 1.0/S0(1,1);
-  double G12 = C0(3,3);
-  double G13 = C0(4,4);
-  double G23 = C0(5,5);
-
   double e11 = epsD1Plus(0);
   double e22 = epsD1Plus(1);
   double g12 = epsD1Plus(3);
   double g13 = epsD1Plus(4);
   double g23 = epsD1Plus(5);
   
-  double y1 = 0.5*(E11*e11*e11 + b(0)*G12*g12*g12 + b(1)*G13*g13*g13);
-  double y2 = 0.5*(E22*e22*e22 + b(0)*G12*g12*g12 + b(1)*G23*g23*g23);
+  double y1 = 0.5*(C0(0,0)*e11*e11 + b(0)*C0(3,3)*g12*g12 + b(1)*C0(4,4)*g13*g13);
+  double y2 = 0.5*(C0(1,1)*e22*e22 + b(0)*C0(3,3)*g12*g12 + b(1)*C0(5,5)*g23*g23);
 
   VectorXd yMax(2);
   yMax(0) = y1 > yMaxSave(0) ? y1 : yMaxSave(0);
@@ -135,7 +128,6 @@ void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& eps
   // ddsdde = dCeff/de*e + Ceff
   // dCeff/de = d(inv(Seff))/d(d)*d(d)/dg*dg/dy*dy/de (sum for each d_i)
   //
-
   // d(inv(Seff))/d(d) = -inv(Seff)*dSeff/d(d)*inv(Seff)
   Matrix6d dInvSeffdd1 = -1.0*Ceff*H1*Ceff;
   Matrix6d dInvSeffdd2 = -1.0*Ceff*H2*Ceff;
@@ -146,22 +138,29 @@ void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& eps
   double dd2dg2 = pe(1)*dc(1)*pow(gVals(1), pe(1) - 1.0)*exp(-1.0*pow(gVals(1),pe(1)));
 
   // dg/dy
-  // if yMax < yMaxOld, yMax = yMaxOld, dg/dy = 0.0
+  // if yMaxVals < y0, dg/dy = 0
   double dg1dy1 = 0.0, dg2dy2 = 0.0;
-  if (yMaxVals(0) > yMaxSave(0)) {
+  if (yMaxVals(0) > y0(0)) {
     dg1dy1 = 0.5*1.0/sqrt(yMaxVals(0)*yc(0));
   }
-  if (yMaxVals(1) > yMaxSave(1)) {
+  if (yMaxVals(1) > y0(1)) {
     dg2dy2 = 0.5*1.0/sqrt(yMaxVals(1)*yc(1));
   }
 
   // dy/de
   // epsStarMac norm strains are zero if compressive
+  // if yMax < yMaxOld, yMax = yMaxOld, dy/de = 0.0
   Vector6d dy1de = Vector6d::Zero(), dy2de = Vector6d::Zero();
-  dy1de(0) = 1.0/S0(0,0)*epsD1Plus(0); 
-  dy1de(3) = b(0)*1.0/S0(3,3)*epsD1Plus(3);
-  dy2de(1) = 1.0/S0(1,1)*epsD1Plus(1); 
-  dy2de(3) = b(1)*1.0/S0(3,3)*epsD1Plus(3);
+  if (yMaxVals(0) > yMaxSave(0)) {
+    dy1de(0) = C0(0,0)*epsD1Plus(0); 
+    dy1de(3) = b(0)*C0(3,3)*epsD1Plus(3);
+    dy1de(4) = b(1)*C0(4,4)*epsD1Plus(4);
+  }
+  if (yMaxVals(1) > yMaxSave(1)) {
+    dy2de(1) = C0(1,1)*epsD1Plus(1); 
+    dy2de(3) = b(0)*C0(3,3)*epsD1Plus(3);
+    dy2de(5) = b(1)*C0(5,5)*epsD1Plus(5);
+  }
 
   // Combine scalar derivs to vect
   Vector6d dd1dEps = Vector6d::Zero(), dd2dEps = Vector6d::Zero();
@@ -203,10 +202,8 @@ void OpenDMModel2Param::computeMatTang(const Matrix6d& Ceff, const Vector6d& eps
       }
     }
   }
-  // cout << "dCeffdEpsDotEps = \n" << dCeffdEpsDotEps.transpose() << endl;
   // Material Tangent = dCeff/de . e + Ceff
-  // NOTE: as formulated, tangent is not sym, making sym here
-  matTang = dCeffdEpsDotEps.transpose() + Ceff;
+  matTang = dCeffdEpsDotEps + Ceff;
 
 }
 /********************************************************************/
