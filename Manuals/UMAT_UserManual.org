@@ -1,0 +1,24 @@
+#+TITLE: User manual for Abaqus UMAT implementation of OpenDM
+#+AUTHOR: Bryce Mazurowski
+#+EMAIL: brycepm2@gmail.com
+* NOTE: This is largely under construction
+* Abaqus Interface
+** UMAT Basics
+- Refer to Abaqus Theory Manual (2021 Edition)
+- Components come in material coordinates
+- Brief discussion of parameters and stateVariables
+** Usage in Abaqus Input (.inp) files
+- Add material name in section call outs
+- Adding material parameters
+- Defining material state variables
+- Outputting material state variables
+** Compiling
+*** Windows
+- Visual Studio to compile shared library
+*** Linux/MacOS
+- CMake to compile shared library
+** Calling the UMAT
+*** PowerShell (Windows)
+*** Terminal (Linux/MacOS)
+* TODO Tests
+** Coupon tests (NonBoeing? If public, for sure)

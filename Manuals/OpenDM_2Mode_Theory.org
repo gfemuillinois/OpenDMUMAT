@@ -1,0 +1,494 @@
+#+TITLE: OpenDM Two Parameter UMAT: C++ Manual
+#+AUTHOR: Bryce Mazurowski
+#+EMAIL: brycepm2@gmail.com
+#+OPTIONS: toc:nil
+#+LATEX_HEADER: \usepackage{bpmResearchPaper}
+#+LATEX_HEADER: \setlength{\parindent}{0pt}
+
+* Theory
+** Problem
+*** Solid mechanics: infinitesimal deformation
+Strong Form neglecting inertial effects and body forces:
+#+begin_src latex
+  \begin{equation}
+    \diverge \stress = 0 \quad \forall \pos \in \Omega
+  \end{equation}
+#+end_src
+BCs:
+#+begin_src latex
+  \begin{equation}
+    \begin{split}
+      \disp &= \bar{\disp} \quad \forall \pos \in \Gamma_d \\
+      \stress \dot \vect{n} &= \bar{\traction}
+      \quad \forall \pos \in \Gamma_n \\
+    \end{split}
+  \end{equation}
+#+end_src
+Strain:
+#+begin_src latex
+\[
+\strain = \frac{1}{2}(\grad \disp + \grad^T \disp)
+\]
+#+end_src
+*** Weak form
+Weak Form:
+#+begin_src latex
+\[
+\int_{\Omega} \grad \weight : \stress d\Omega =
+\int_{\Gamma_n} \weight \dot \bar{\traction} d\Gamma
+\]
+#+end_src
+*** Material nonlinearity:
+Material nonlinearity requires a special solver. Newton-Raphson is the
+classical choice. However, as discussed in Section~[[* General comments
+about the tangent stiffness matrix]]. The displacement solution becomes incremental
+#+begin_src latex
+\[
+\disp_n = \sum_{j=0}^{n} \Delta \disp
+\]
+#+end_src
+With updates at each NR solve at each load step:
+#+begin_src latex
+\[
+\disp_{n+1} = \disp_n + \Delta \disp_{n+1}
+\]
+#+end_src
+Make weak form a residual:
+#+begin_src latex
+  \[
+  R = 
+  \int_{\Gamma_n} \weight \dot \bar{\traction} d\Gamma -
+  \int_{\Omega} \grad \weight : \stress d\Omega
+  \]
+#+end_src
+Linearize with Taylor Series:
+#+begin_src latex
+\[
+R (\disp_{n+1}) = R (\disp_{n}) +
+\frac{\partial R}{\partial \disp} (\disp_{n})
+\delta \disp_{n+1} +
+HOT
+\]
+#+end_src
+Progressing from a converged solution, $R(\disp_n) = 0$, dropping
+higher order terms
+#+begin_src latex
+\[
+\frac{\partial R}{\partial \disp}(\disp_n) \delta \disp_{n+1} \approx 
+R (\disp_{n+1})
+\]
+#+end_src
+The quantity $\disp_{n+1}$ is found iteratively in the Newton-Raphson
+scheme. So we solve a given load step $n$ for a number of NR
+increments $i$ as:
+#+begin_src latex
+\[
+\frac{\partial R}{\partial \disp} (\disp_n^i) \delta \disp_{n+1}^{i+1} =
+R (\disp_{n}^{i})
+\]
+#+end_src
+With our residual, this becomes:
+#+begin_src latex
+  \[
+  \int_{\Omega} \grad \weight : \frac{\partial \stress}{\partial \disp}
+  \delta \disp_{n+t}^{i+1} d\Omega =
+  \int_{\Gamma_n} \weight \dot \bar{\traction} -
+  \int_{\Omega} \grad \weight : \stress (\disp) d\Omega 
+  \]
+#+end_src
+Where stress depends on $\disp_{n}^{i}$ in each term. Once the system
+of equations is solved for a give $i$, the displacement is updated. The
+residual is then recomputed, and can be used as a convergence check.
+
+The term $\frac{\partial \stress}{\partial \disp}$ is the material
+tangent stiffness matrix.
+*** TODO Relevant coordinate systems and transformations
+- Problem coordinates
+- Material coordinates
+- Transforming between the two
+- Notation for each case
+** OpenDM Two Parameter Model
+*** Physical motivation
+- Damage formulation for woven CMCs (Cite Maire papers)
+- Damage parameters represent cracking
+  - d1: Aligned with principal direction of mat coords
+  - d2: Perpendicular to principal direction of mat coords
+**** TODO Add figure
+**** TODO Add citation
+*** Constitutive behavior
+**** Helmholtz free energy
+
+#+begin_src latex
+  \[
+  \psi = \frac{1}{2 \rho} (\strain^* : \tilde{\vect{C}} : \strain^*)
+  \]
+#+end_src
+Where $\strain^*$ is mechanical strain:
+$\strain^* = \strain - \strain^{th}$
+**** Stress
+
+Stress is the derivative of the Helmholtz free energy with respect to strain:
+#+begin_src latex
+  \[
+  \stress = \rho \frac{\partial \psi}{\partial \strain} =
+  \tilde{\vect{C}} : \strain^*
+  \]
+#+end_src
+**** Material stiffness matrix
+
+The material stiffness tensor is affected by the two damage parameters
+and their progression. This relationship depends on the strain and is
+calculated as follows:
+#+begin_src latex
+\[
+\tilde{\vect{C}} = (\tilde{\vect{S}})^{-1}
+\]
+#+end_src
+where $\tilde{\vect{S}}$ is the material compliance tensor for a given
+strain and history.
+
+The material compliance tensor for OpenDM two parameter model is
+calculated as follows:
+#+begin_src latex
+\[
+\tilde{\vect{S}} = \vect{S}^0 + d^1 \vect{H}^1 + d^2 \vect{H}^2
+\]
+#+end_src
+$\vect{S}^0$ is the undamaged material compliance tensor.
+
+$\vect{H}^i$ tensors are constants that modify the material
+compliance for each damage component. They are calculated as:
+#+begin_src latex
+  \[
+  \vect{H}^1 =
+  \begin{bmatrix}
+    h_1^1 S_{11}^0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & h_3^1 S_{55}^0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & h_2^1 S_{66}^0 
+  \end{bmatrix}
+  \]
+#+end_src
+and
+#+begin_src latex
+  \[
+  \vect{H}^2 =
+  \begin{bmatrix}
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & h_1^2 S_{22}^0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & h_3^2 S_{44}^0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & h_2^2 S_{66}^0 
+  \end{bmatrix}
+  \]
+#+end_src
+The quantities $h_i^m$ are mode specific parameters that increase or
+decrease the effect of damage has on each mode.
+
+$\vect{H}^1$ brings stiffness changes as a result of Mode I, II, and
+III microcracking in the CMC matrix as $d^1$ increases from zero. This
+corresponds to microcracks that are growing perpendicular to the
+principle material direction.
+
+$\vect{H}^2$ Brings in the same microcracking effects, but for cracks
+that are parallel to the principle material direction.
+
+**** Material tangent stiffness matrix
+
+The material tangent stiffness tensor is the derivative of the stress
+wrt strain:
+#+begin_src latex
+  \[
+  \vect{C}_{tan} = \frac{\partial \stress}{\partial \strain} = 
+  \frac{\partial \tilde{\vect{C}}}{\partial \strain} +
+  \tilde{\vect{C}}
+  \]
+#+end_src
+Material nonlinearity is reflected by the fact that the partial
+derivative of the material stiffness tensor with respect to strain is
+not zero. In the OpenDM model, this nonlinearity is caused by the two
+damage parameters $d^1$ and $d^2$
+
+**** Damage values and evolution
+
+The damage variables evolve based on individual psuedo potentials:
+#+begin_src latex
+\[
+F^i = f(y^i) - d^i
+\]
+#+end_src
+Driving forces $y^i$ are calculated for each damage mode:
+#+begin_src latex
+  \begin{equation}
+    \begin{split}
+      y^1 &= \frac{1}{2} (
+      \varepsilon_{11} C^0_{1111} \varepsilon_{11} + 
+      b_2 \varepsilon_{13} C^0_{1313} \varepsilon_{13} + 
+      b_1 \varepsilon_{12} C^0_{1212} \varepsilon_{12} ) \\ 
+      y^2 &= \frac{1}{2} (
+      \varepsilon_{22} C^0_{2222} \varepsilon_{22} + 
+      b_2 \varepsilon_{23} C^0_{2323} \varepsilon_{23} + 
+      b_1 \varepsilon_{12} C^0_{1212} \varepsilon_{12} ) \\ 
+    \end{split}
+  \end{equation}
+#+end_src
+where $b_i$ are damage specific shear coupling parameters that
+increase the amount shear strains drive damage growth.
+
+For convenience, another step is added here:
+#+begin_src latex
+  \[
+  g^i = \frac{\langle \sqrt{y_{max}^i} - \sqrt{y_0^i}\rangle_+}{
+  \sqrt{y_c^i}}
+  \]
+#+end_src
+where we have added a history effect in $y_{max}^i$, which 
+takes the largest $y^i$ value over time for each mode at the time of calculation
+for a given material point.
+$\langle \dot \rangle_+$ is the positive
+Macaulay bracket.
+
+$y_0^i$ is a model parameter that sets a threshold value of the
+driving force to start damage.
+
+$y_c^i$ is a model parameter that changes the celerity of the damage
+progression.
+
+The final step is
+#+begin_src latex
+\[
+f(y^i) = d_c^i [1 - \exp^{-(g^i)^{(p^i)}}]
+\]
+#+end_src
+$d_c^i$ sets the maximum value of the damage parameter.
+
+$p^i$ changes the shape of the curve of damage progression.
+**** Analytical tangent stiffness matrix
+
+Starting from the equation for stress in Voigt notation,
+#+begin_src latex
+\[
+\sigma_i = \tilde{C}_{ik} \varepsilon_{k},
+\]
+#+end_src
+the analytical tangent stiffness matrix can be calculated.
+
+#+begin_src latex
+  \[
+  \frac{\partial \sigma_i}{\partial \varepsilon_j} =
+  \frac{\partial \tilde{C}_{ik}}{\partial \varepsilon_j} \varepsilon_k +
+  \tilde{C}_{ij}
+  \]
+#+end_src
+The difficult part of the above equation is
+$\frac{\partial \tilde{c}_{ik}}{\partial \varepsilon_j}$, which is
+calculated as
+#+begin_src latex
+  \[
+  \frac{\partial \tilde{C}_{ik}}{\partial \varepsilon_{j}} =
+  \frac{\partial \tilde{S}_{ik}^{-1}}{\partial \varepsilon_{j}}.
+  \]
+#+end_src
+The derivative of the inverse of the effective compliance tensor can
+be computed if we start from the indentity for the inverse.
+#+begin_src latex
+  \begin{equation}
+    \begin{split}
+      \tilde{S}_{ik}^{-1} S_{kl} &= \delta_{il} \\
+      \frac{\partial}{\partial \epsilon_{j}} (\tilde{S}_{ik}^{-1} S_{kl}) &= 0_{ilj} \\
+      \frac{\partial \tilde{S}_{ik}^{-1}}{\partial \varepsilon_{j}} \tilde{S}_{kl} +
+      \tilde{S}_{ik}^{-1} \frac{\partial \tilde{S}_{kl}}{\partial \varepsilon_{j}} &= 0_{ilj} \\
+      \frac{\partial \tilde{S}_{ik}^{-1}}{\partial \varepsilon_{j}} \tilde{S}_{kl} &=
+      -\tilde{S}_{ik}^{-1} \frac{\partial \tilde{S}_{kl}}{\partial \varepsilon_{j}} \\
+      \frac{\partial \tilde{S}_{ik}^{-1}}{\partial \varepsilon_{j}} =
+      -\tilde{S}_{ik}^{-1} \frac{\partial \tilde{S}_{km}}{\partial \varepsilon_{j}} \tilde{S}_{ml}^{-1} &=
+      -\tilde{C}_{ik} \frac{\partial \tilde{S}_{km}}{\partial \varepsilon_{j}} \tilde{C}_{ml}
+    \end{split}
+  \end{equation}
+#+end_src
+This includes the assumption that the compliance tensor is invertible,
+but that is a must have in mechanics. The next step is the derivative
+of the compliance tensor.
+#+begin_src latex
+  \[
+  \frac{\partial \tilde{S}_{km}}{\partial \varepsilon_j} =
+  \frac{\partial}{\partial \varepsilon_j} (S_{km}^{0} + \sum_{n=1}^{2} d^n H^n_{km}) = \sum_{n=1}^2 \frac{\partial d^n}{\partial \varepsilon_j} H_{km}^n
+  \]
+#+end_src
+The derivative for each damage mode can then be calculated
+#+begin_src latex
+  \[
+  \frac{\partial d^n}{\partial \varepsilon_j} =
+  \frac{\partial}{\partial \varepsilon_j}
+  (d_c^n(1 - \exp^{-(g^n)^{(p^m)}})) =
+  \frac{\partial}{\partial \varepsilon_j}(-d_c^n \exp^{-(g^n)^{(p^n)}})
+  \]
+#+end_src
+The only non-constants in this formula is $g^n$. We can use the chain
+rule to simplify this.
+#+begin_src latex
+  \[
+  \frac{\partial d^n}{\partial \varepsilon_j} = 
+  \frac{\partial d^n}{\partial g^n} \frac{\partial g^n}{\partial \varepsilon_j}
+  \]
+#+end_src
+The derivative with respect to $g^n$ is then
+#+begin_src latex
+\[
+\frac{\partial d^n}{\partial g^n} = d_c^n p^n (g^n)^(p^n - 1) \exp^{-(g^n)^{p^n}}
+\]
+#+end_src
+Now, looking at $g^n$.
+#+begin_src latex
+  \[
+  \frac{\partial g^n}{\partial \varepsilon_j} =
+  \frac{\partial}{\partial \varepsilon_j}
+  (\frac{\langle \sqrt{y_{max}^n} - \sqrt{y_0^n} \rangle_+}{\sqrt{y_c^n}})
+  \]
+#+end_src
+In this case, there is again only one term that depends on $\strain$,
+$y_{max}^n$. Again the chain rule can be exercised.
+#+begin_src latex
+  \[
+  \frac{\partial g^n}{\partial \varepsilon_j} = 
+  \frac{\partial g^n}{\partial y_{max}^n} \frac{\partial y_{max}^n}{\partial \varepsilon_j}
+  \]
+#+end_src
+And the next derivative can be calculated.
+#+begin_src latex
+  \[
+  \frac{\partial g^n}{\partial y_{max}^n} =
+  \begin{cases}
+    0 & \langle \sqrt{y_{max}^n} - \sqrt{y_0^n} \rangle_+ > 0 \\
+    \frac{1}{2 \sqrt{y_{max}^n} \sqrt{y_c^n}} & else
+  \end{cases}
+  \]
+#+end_src
+Finally, the end of the chain is near. The driving
+forces explicitly depend on $\strain$. Their derivatives are vectorial
+are calculated for a given load step $i$ as
+#+begin_src latex
+  \[
+  \frac{\partial y_{max}^n}{\partial \varepsilon_j} =
+  \begin{cases}
+    0 & y_i^n > y_{max}^n \\
+    \frac{\partial y_{max}^n}{\partial \varepsilon_j} & else
+  \end{cases}
+  \]
+#+end_src
+Then for each driving force, the final derivative  in Voigt notation is
+#+begin_src latex
+  \begin{equation}
+    \begin{split}
+      \frac{\partial y^1}{\partial \strain} &=
+      [ C_{11}^0 \varepsilon_{1} 0 0 0 b^2 C_{55}^0 \varepsilon_{5} b^1 C_{66}^0 \varepsilon_{6} ] \\
+      \frac{\partial y^2}{\partial \strain} &=
+        [ 0 C_{22}^0 \varepsilon_{2} 0 b^2 C_{44}^0 \varepsilon_{4} 0 b^1 C_{66}^0 \varepsilon_{6} ] 
+    \end{split}
+  \end{equation}
+#+end_src
+To summarize in broad strokes, the material tangent stiffness tensor
+is calculated as follows:
+#+begin_src latex
+    \begin{equation*}
+      \begin{split}
+        \frac{\partial \sigma_i}{\partial \varepsilon_j} &=
+        \frac{\partial \tilde{C}_{ik}}{\partial \varepsilon_j} \varepsilon_k^{*} + \tilde{C}_{ij} \\
+         &= -\tilde{C}_{il} \frac{\partial \tilde{S}_{lm}}{\partial \varepsilon_j} \tilde{C}_{mk} \varepsilon_k^* + \tilde{C}_{ij} \\
+         &= -\tilde{C}_{il} (\frac{\partial d^1}{\partial \varepsilon_j} H_{lm}^1 + \frac{\partial d^2}{\partial \varepsilon_j} H_{lm}^2)
+        \tilde{C}_{mk} \varepsilon_k^* + \tilde{C}_{ij} \\
+      \end{split}
+    \end{equation*}
+#+end_src
+With the quantities
+#+begin_src latex
+  \begin{equation*}
+    \begin{split}
+      \frac{\partial d^1}{\partial \varepsilon_j} &=
+      \frac{\partial d^1}{\partial g^1} \frac{\partial g^1}{\partial y_{max}^1} \frac{\partial y_{max}^1}{\partial \varepsilon_j} \\
+      \frac{\partial d^2}{\partial \varepsilon_j} &=
+      \frac{\partial d^2}{\partial g^2} \frac{\partial g^2}{\partial y_{max}^2} \frac{\partial y_{max}^2}{\partial \varepsilon_j} \\
+    \end{split}
+  \end{equation*}
+#+end_src
+Of which, all of the required derivatives have been calculated.
+
+**** Numerical tangent stiffness matrix
+
+The tangent stiffness matrix can be calculated numerically. This
+avoids all of the complicated math shown above, but can add some
+computational expense.
+
+If a Taylor series expansion of a stress component is taken at the
+current strain,
+#+begin_src latex
+  \[
+  \sigma_i (\strain + \delta \varepsilon_j) = \sigma_i (\strain) +
+  \frac{\partial \sigma_i}{\partial \varepsilon_j} (\strain) (\delta \varepsilon_j) + O(\delta \varepsilon_j^2)
+  \] 
+#+end_src
+Where we have abused notation to show that
+$\strain + \delta \varepsilon_j$ is the current strain perturbed in
+the $j^{th}$ component a magnitude $\delta \varepsilon$.
+
+This Taylor series can be rearranged to get an approximation of the
+material tangent stiffness matrix.
+#+begin_src latex
+  \[
+  \vect{C}_{tan} = \frac{\partial \sigma_i}{\partial \varepsilon_j} \approx
+  \frac{\sigma_i (\strain + \delta \varepsilon_j) - \sigma_i (\strain)}{\delta \varepsilon_j}
+  \]
+#+end_src
+In practice, for each of the six perturbations of strain a
+new vector of stresses are calculated. Those new stresses are
+subtracted from the base set of stresses and a column of the tangent
+stiffness matrix is obtained.
+
+The numerical tangent stiffness matrix has the same problems with
+symmetry as the analytical one. It is also symmetrized to simplify
+analysis.
+
+One must also be careful about the value of the strain perturbation. A
+smaller value is more accurate, but can lead to numerical troubles.
+**** General comments about the tangent stiffness matrix
+
+In numerical studies with the material, we have found the tangent
+stiffness matrix to become non-positive definite. In the material
+modeling world, this means the material is softening. In other words,
+an increase in strain causes a decrease in stress. This has major
+applications on the numerical solution. An arclength solver can be
+used to capture general behavior. One can also solve strictly
+displacement controlled problems to avoid issues.
+
+Also, both the numerical and analytical tangent stiffness tensors are
+not generally symmetric. This has significant impacts on the
+computational expense of the method. To remedy this, the tangent
+matrix is always symmetrized as follows: 
+#+begin_src latex
+  \[
+  \vect{C}_{tan}^{sym} = \frac{1}{2} ( \vect{C}_{tan} + \vect{C}_{tan}^T )
+  \]
+#+end_src
+This symmetrized tangent is no longer analytical, so we are
+effectively restricted to quasi-newton solver methods.
+
+* Model Parameters
+#+begin_src latex
+  \begin{table}[h!]
+    \label{tab:OpenDM2Mode_ParamDef}
+    \centering
+    \begin{tabular}{c|c|c}
+      Parameter & Number & Effect \\
+      \hline
+      $h_i^m$ & $6$ & scales damage mode $m$ effect on compliance from fracture mode $i$ \\
+      $b_i$ & $2$ & scales contribution of shear strains to driving forces \\
+      $y_0^i$ & $2$ & sets a threshold value of the driving force for mode $m$ \\ 
+      $y_c^i$ & $2$ & changes the celerity of the damage progression \\
+      $d_c^i$ & $2$ & sets the maximum value of the damage parameter \\
+      $p^i$ & $2$ &changes the shape of the curve of damage progression \\
+    \end{tabular}
+  \end{table}
+#+end_src

@@ -1,0 +1,133 @@
+% Package for research paper
+% Bryce Mazurowski (brycepm2@gmail.com)
+%
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{bpmResearchPaper}[2023/07/01 ResearchPaper]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                        UsePackage
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% To intelligently add spaces after commands
+\usepackage{xspace}
+% For \includegraphics
+\usepackage{graphicx}
+% For text colors
+\usepackage{color}
+% for comment environments
+\usepackage{comment}
+% for bold math
+\usepackage{bm}
+% For math symbols
+\usepackage{amsmath}
+\usepackage{amssymb}
+% tikz
+\usepackage[customcolors]{hf-tikz}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+% For subfigures
+\usepackage{subcaption}
+% for in document hyperlinks
+\usepackage{hyperref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                        NewCommand 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Numerical Methods
+\newcommand{\FEM}{{FEM}\xspace} 
+\newcommand{\GFEM}{{GFEM}\xspace} 
+\newcommand{\PFEM}{$p$FEM\xspace}
+\newcommand{\PFEMGFEM}{$p$FEM-GFEM\xspace}
+\newcommand{\GFEMgl}{GFEM\ensuremath{^{gl}}\xspace} 
+\newcommand{\GLFEM}{Submodeling\xspace}
+\newcommand{\TieCon}{Tie Constraints\xspace}
+\newcommand{\IGL}{{IGL}\xspace}
+\newcommand{\IGLGFEMgl}{{IGL-\GFEMgl}\xspace}
+\newcommand{\MSFEM}{{MsFEM}\xspace} 
+
+% approx space stuff
+\newcommand{\node}{\alpha}
+\newcommand{\indexset}{\ensuremath{I_h}\xspace}
+\newcommand{\localset}{\ensuremath{\indexset^{gl}}\xspace}
+\newcommand{\shapeFun}{\ensuremath{N}\xspace}
+\newcommand{\shapeFunX}{\ensuremath{\shapeFun(\bm{x})}\xspace} 
+\newcommand{\shapeFunXNode}{\ensuremath{\shapeFun_\node(\bm{x})}\xspace} 
+\newcommand{\shapeFunXNodeInCloud}{\ensuremath{\shapeFun_\nodeincloud(\bm{x})}\xspace}
+\newcommand{\GFEMShapeFunX}{\ensuremath{\phi_{\node i} (\bm{x})}}
+\newcommand{\enrichFun}{\ensuremath{E_{\alpha i}}\xspace} 
+\newcommand{\enrichFunX}{\ensuremath{\enrichFun(\bm{x})}\xspace} 
+\newcommand{\enrichFunXNode}[1]{\ensuremath{\enrichFun(#1)}\xspace} 
+\newcommand{\nodeincloud}{\ensuremath{\beta}\xspace}
+\newcommand{\xnode}{\ensuremath{\bm{x}_\node}\xspace} 
+\newcommand{\ball}{{\omega_\alpha}} 
+\newcommand{\Sspace}{\ensuremath{\mathbb{S}}\xspace} 
+\newcommand{\femspace}{\ensuremath{\Sspace_\FEM}\xspace} 
+\newcommand{\gfemspace}{\ensuremath{\Sspace_\GFEM}\xspace} 
+\newcommand{\enrichspace}{\ensuremath{\Sspace_\ENR}\xspace} 
+
+
+% Notation
+\newcommand{\vect}[1]{\ensuremath{\bm{#1}}}
+
+% Math stuff
+\newcommand{\ci}{\ensuremath{\mathcal{I}}}
+\newcommand{\Reals}{\ensuremath{\mathbb{R}}}
+\newcommand{\diverge}{\nabla \cdot}
+\newcommand{\grad}{\nabla}
+\renewcommand{\dot}{\cdot}
+
+
+% shorthand for phys. quantities
+\newcommand{\disp}{\vect{u}}
+\newcommand{\stress}{\vect{\sigma}}
+\newcommand{\strain}{\vect{\varepsilon}}
+\newcommand{\pos}{\vect{x}}
+\newcommand{\normal}{\vect{n}}
+\newcommand{\weight}{\vect{w}}
+\newcommand{\traction}{\vect{t}}
+
+% tikz input function
+\newcommand{\includetikz}[1]{%
+	\tikzsetnextfilename{#1}%
+	\input{#1}%
+}
+
+% Commands for communication
+\newcommand{\CAD}[1]{{\textcolor{violet}{#1}}}
+\newcommand{\CADf}[1]{\footnote{{\textcolor{violet}{CAD: #1}}}}
+
+\newcommand{\BPM}[1]{{\textcolor{cyan}{#1} }}
+%\newcommand{\BPM}[1]{{#1}}
+\newcommand{\BPMf}[1]{\footnote{{\textcolor{cyan}{BPM: #1}}}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                        Misc Settings
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% set graphics path
+\graphicspath{ {./figs/} }
+% set input file path
+\makeatletter
+\providecommand*{\input@path}{}
+\edef\input@path{ {./figs/} {./figs_pgfplots/} }
+\makeatother
+%%%%%%
+% tikz/pgfplot things
+\usetikzlibrary{shadings,patterns,tikzmark, plotmarks, spy, 
+	pgfplots.polar, external, matrix, shapes.symbols,shadings,shapes, 
+	decorations.shapes,decorations.pathmorphing,fit,backgrounds}
+\pgfplotsset{compat=1.10}   %% <-- this added
+\usepgfplotslibrary{groupplots}
+
+\usetikzlibrary{calc}
+% tell tikz figs to use this external file
+% WARNING: You must create this folder manually!
+\usetikzlibrary{external}
+%\tikzexternalize
+\tikzsetexternalprefix{figs_pgfplots/tikz/}
+% compatibility for pgf figure
+\pgfplotsset{compat=newest}
+
+%%%%%
