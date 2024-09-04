@@ -1,0 +1,25 @@
+#+TITLE: OpenDM CMC Damage model: UMAT implementation
+#+AUTHOR: Bryce Mazurowski
+#+EMAIL: brycepm2@gmail.com
+
+* Goal
+This repository contains a C++ implementation of an Abaqus UMAT
+interface to the OpenDM damage model. Both the 2-mode and 4-mode
+versions are implemented.
+
+* Theory manuals
+** 2-Mode
+A theory manual for the 2-mode model can be found [[./Manuals/OpenDM_2Mode_Theory.pdf][here]]
+** 4-Mode
+This manual is still under construction
+* User manuals
+** General manual
+A manual for use of the OpenDM UMAT is [[./Manuals/UMAT_UserManual.org][here]]
+This manual is also still under construction.
+
+** Videos
+Videos of compilation and Abaqus testing of the UMAT are available below
+*** Windows
+Under construction
+*** Linux
+Under construction
