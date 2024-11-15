@@ -1,0 +1,534 @@
+% Created 2024-11-15 Fri 10:32
+% Intended LaTeX compiler: pdflatex
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{bpmResearchPaper}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\author{Bryce Mazurowski}
+\date{\today}
+\title{OpenDM Damage Model Theory Manual}
+\hypersetup{
+ pdfauthor={Bryce Mazurowski},
+ pdftitle={OpenDM Damage Model Theory Manual},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 29.4 (Org mode 9.6.15)}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+
+\section{Problem Definition}
+\label{sec:orgac83f4b}
+\subsection{Solid mechanics: infinitesimal deformation}
+\label{sec:orgfbe96c5}
+The partial differential equation we wish to solve is the balance of
+linear momentum. Stated in strong form neglecting inertial effects and
+body forces:
+\begin{equation}
+  \diverge \stress = 0 \quad \forall \pos \in \Omega
+\end{equation}
+
+with boundary conditions
+\begin{equation}
+  \begin{split}
+    \disp &= \bar{\disp} \quad \forall \pos \in \Gamma_d \\
+    \stress \dot \vect{n} &= \bar{\traction}
+    \quad \forall \pos \in \Gamma_n \\
+  \end{split}
+\end{equation}
+
+The relationship between stress and strain is
+\begin{equation}
+  \stress = \bar{\vect{C}} : \strain
+\end{equation}
+
+The infinitesimal strain tensor is used
+\[
+\strain = \frac{1}{2}(\grad \disp + \grad^T \disp)
+\]
+
+where \(\disp\) is the displacement solution to the problem.
+\subsection{Weak Form}
+\label{sec:org5ca83d9}
+The method of weighted residuals is used to arrive at the weak form of
+the problem:
+\begin{equation}
+  \int_{\Omega} \grad \weight : \stress (\disp) d\Omega =
+  \int_{\Gamma_n} \weight \dot \bar{\traction} d\Gamma
+\end{equation}
+
+where \(\weight \in H^1\) is an arbitrary weight function and
+\(\disp \in H^1\) is the displacement solution.
+\subsection{Material nonlinearity:}
+\label{sec:org7e11a1a}
+Material nonlinearity requires a special solver. Newton-Raphson is the
+classical choice. However, as discussed in Section \ref{sec:org3f97406}, for the OpenDM Damage Models a
+Quasi-Newton solver is used. This is because the material tangent stiffness
+matrix is not exact. The displacement solution becomes incremental:
+\[
+\disp_n = \sum_{j=0}^{n} \Delta \disp_j
+\]
+
+With updates at each NR solve at each load step:
+\[
+\disp_{n+1} = \disp_n + \Delta \disp_{n+1}
+\]
+
+The weak form can be used to define a residual:
+\[
+R = 
+\int_{\Gamma_n} \weight \dot \bar{\traction} d\Gamma -
+\int_{\Omega} \grad \weight : \stress (\disp) d\Omega
+\]
+
+Then the residual is linearized via a Taylor Series:
+\[
+R (\disp_{n+1}) = R (\disp_{n}) +
+\frac{\partial R}{\partial \disp} (\disp_{n})
+\delta \disp_{n+1} +
+O(\delta \disp^2)
+\]
+
+Progressing from a converged solution, \(R(\disp_n) = 0\), dropping
+higher order terms:
+\[
+\frac{\partial R}{\partial \disp}(\disp_n) \delta \disp_{n+1} \approx 
+R (\disp_{n+1})
+\]
+
+The quantity \(\disp_{n+1}\) is found iteratively in the Newton-Raphson
+scheme. So we solve a given load step \(n\) for a number of NR
+increments \(i\) as:
+\[
+\frac{\partial R}{\partial \disp} (\disp_n^i) \delta \disp_{n+1}^{i+1} =
+R (\disp_{n}^{i})
+\]
+
+With our residual, this becomes:
+\[
+\int_{\Omega} \grad \weight : \frac{\partial \stress}{\partial \disp}
+\delta \disp_{n+1}^{i+1} d\Omega =
+\int_{\Gamma_n} \weight \dot \bar{\traction}^{n+1} d\Omega -
+\int_{\Omega} \grad \weight : \stress (\disp_{n}^i) d\Omega 
+\]
+
+Once the system of equations is solved for a given \(i\), the
+displacement is updated. The residual is then recomputed, and can be
+used as a convergence check. The term \(\frac{\partial
+\stress}{\partial \disp}\) is the material tangent stiffness
+matrix. This matrix is computed based on the formulation of the OpenDM
+material model.
+
+\section{OpenDM Damage Models}
+\label{sec:org25fcd9c}
+OpenDM damage models are based on the formulation in the papers
+(1, 4). These works are
+based on the Onera formulation in (2, 3).
+
+To simplify presentation of the models, stresses and strains are given
+in Voigt notation, that is:
+\begin{equation}
+  \label{eq:VoigtStressStrain}
+  \begin{split}
+    \strain &= [\strainComp{11}, \strainComp{22}, \strainComp{33},
+              2 \strainComp{23}, 2 \strainComp{13}, 2 \strainComp{12}]^T =
+              [\strainComp{1}, \strainComp{2}, \strainComp{3},
+                    \strainComp{4}, \strainComp{5}, \strainComp{6}]^T \\
+    \stress &= [\stressComp{11}, \stressComp{22}, \stressComp{33},
+              \stressComp{23}, \stressComp{13}, \stressComp{12}]^T =
+              [\stressComp{1}, \stressComp{2}, \stressComp{3},
+              \stressComp{4}, \stressComp{5}, \stressComp{6}]^T \\
+  \end{split}
+\end{equation}
+
+All quantities are also given in material coordinates \(\hat{\pos}\).
+
+The Helmholtz Free Energy is defined as
+\begin{equation}
+  \label{eq:OpenDM_Helmholtz}
+  \psi = \frac{1}{2 \rho}
+  (\strain^* \dot \bar{\vect{C}} \strain^*),
+\end{equation}
+
+where \(\rho\) is density, \(\strain^*\) is the mechanical strain,
+and \(\bar{\vect{C}}\) effective material stiffness.
+
+For now, thermal strain \(\strain^{th}\) is taken to always be
+zero, this is an area ripe for future work. Material stress behavior
+is then the derivative of the Helmholtz free energy with respect to
+the strain,
+\begin{equation}
+  \label{eq:OpenDM_Stress}
+  \stress = \bar{\vect{C}} \strain^*.
+\end{equation}
+
+The material stiffness tensor is defined as
+\begin{equation}
+  \label{eq:OpenDM_Stiffness}
+  \bar{\vect{C}} = (\bar{\vect{S}})^{-1},
+\end{equation}
+
+where \(\bar{\vect{S}}\) is the effective material compliance
+tensor. The definition of \(\bar{\vect{S}}\) is where the damage modes
+begin to appear 
+\begin{equation}
+  \label{eq:OpenDM_EffCompliance}
+  \bar{\vect{S}} = \vect{S}^0 + \sum_{n=1}^2 d^n \vect{H}^n,
+\end{equation}
+
+where \(\vect{S}^0\) is the undamaged material stiffness tensor and
+\(d^n\) is the damage variable for mode \(n=1,2,4,5\) with the final two
+removed in the 2-Mode model. \(\vect{H}^n, n=1,2,4,5\) are constants
+that modify material compliance these tensors are defined for their
+respective damage model below. The 2-Mode model makes use of
+\(\vect{H}^1\) and \(\vect{H}^2\) only.
+
+Energy dissipation as a result of matrix microcracking is captured by
+independent dissipation potentials for each damage mode. Each mode has
+the same form,
+\begin{equation}
+  \label{eq:OpenDM_DamagePotential}
+  F^n = f(y^n) - d^n.
+\end{equation}
+
+The driving forces \(y^n\) vary for each mode and model and are defined
+below.The definition of \(f(y^n)\) is carried out over two steps, first
+\begin{equation}
+  \label{eq:OpenDM_gVals}
+  g^n =
+  \frac{\langle \sqrt{y_{max}^n} - \sqrt{y_0^n}\rangle_+}{
+  \sqrt{y_c^n}},
+\end{equation}
+
+where \(y_{max}^n\) adds a history effect to the model, which takes the
+largest \(y^n\) value over time for each mode calculation at a given
+material point and \(\langle \dot \rangle_+\) is the positive Macaulay
+bracket. Model parameter \(y_0^n\) sets a threshold
+value of the driving force to start damage. Another parameter \(y_c^n\)
+changes the celerity of the damage progression. Then, the definition
+of \(f(y^n)\) is
+\begin{equation}
+  \label{eq:OpenDM_DamageEvol}
+  f(y^n) = d_c^n [1 - \exp(-(g^n)^{(p^n)})].
+\end{equation}
+
+An additional parameter \(d_c^n\) sets the maximum value that a given
+damage mode can reach and a final parameter \(p^n\) changes the shape of
+the curve of damage progression.
+
+\subsection{2-Mode Model}
+\label{sec:orga8f17f0}
+Matrix microcracking perpendicular to each fiber direction is captured
+by the 2-Mode model. Matrix microcrack growth for each mode is shown
+in Figure \ref{fig:OpenDM2_DamageModes}.
+\begin{figure}[h!]
+  \centering
+  \def\svgwidth{0.5\linewidth}
+  \input{OpenDM2_DamageModes.pdf_tex}
+  \caption{Damage modes in material coordinates $\hat{\pos}$ for the OpenDM 2-Mode
+    damage model. Representative matrix microcracks are shown for each
+    damage mode.}
+  \label{fig:OpenDM2_DamageModes}
+\end{figure}
+
+The definition of \(\vect{H}^1\) and \(\vect{H}^2\) is
+\begin{equation}
+  \label{eq:OpenDM2_HTens}
+  \vect{H}^1 =
+  \begin{bmatrix}
+    \eta^1 h_1^1 S_{11}^0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & h_3^1 S_{55}^0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & h_2^1 S_{66}^0 \\
+  \end{bmatrix}, \
+  %
+  \vect{H}^2 =
+  \begin{bmatrix}
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & \eta^2 h_1^2 S_{22} & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & h_3^2 S_{44} & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & h_2^2 S_{66} \\
+  \end{bmatrix},
+\end{equation}
+
+where \(h_1^n\), \(h_2^n\), and \(h_3^n\) are model parameters that scale
+the effect of each fracture mode on material compliance for damage
+mode \(n\). The nonzero parts of \(\vect{H}^n\) represent effect of Mode
+I, II, III microcrack growth associated with each mode. Microcrack
+closure is captured by the function \(\eta^n\) for each mode \(n\). In
+(3), a progressive deactivation rule is used to
+represent microcracks closing at different times. Here a simple on-off
+function based on the current strain is used
+\begin{equation}
+  \label{eq:DamageDeactivation}
+  \eta^n = 
+  \begin{cases}
+    1 & \strain^n \geq 0 \\
+    0 & else
+  \end{cases},
+\end{equation}
+
+where \(\strain^n\) is the normal strain associated with Mode I fracture
+for each damage mode. In Equation (\ref{eq:OpenDM2_HTens}), there is
+only damage deactivation for Mode I. This is consistent with closed
+cracks, as shear stresses (Mode II and III) can still affect the
+stiffness under compressive normal loads.
+
+The driving forces for modes \(1\) and \(2\) are then
+\begin{equation}
+  \label{eq:OpenDM2_DrivingForces}
+  \begin{split}
+    y^1 &= \frac{1}{2} (
+    \varepsilon_{1}^+ C^0_{11} \varepsilon_{1}^+ + 
+    b_2 \varepsilon_{5} C^0_{55} \varepsilon_{5} + 
+    b_1 \varepsilon_{6} C^0_{66} \varepsilon_{6} ), \\ 
+    y^2 &= \frac{1}{2} (
+    \varepsilon_{2}^+ C^0_{22} \varepsilon_{2}^+ + 
+    b_2 \varepsilon_{4} C^0_{44} \varepsilon_{4} + 
+    b_1 \varepsilon_{6} C^0_{66} \varepsilon_{6} ), \\ 
+  \end{split}
+\end{equation}
+
+where \(\vect{C}^0\) is the undamaged stiffness tensor and \(b_i, i=1,2\), are
+mode-specific shear coupling parameters that increase the effect shear
+strains have on damage growth.
+
+The quantities \(\strainComp{1}^+\) and \(\strainComp{2}^+\) indicate the
+positive part of the normal strain. A Macaulay bracket is used to
+calculate this for each strain component. This assures that
+compressive normal force does not contribute to the driving force for
+either damage mode, which is consistent with microcrack closure.
+
+\subsection{4-Mode Model}
+\label{sec:org644d031}
+In the 4-mode model, the first two damage modes represent the same
+type of microcracking as in the previous model. The additional two
+capture matrix microcracks that are oriented \(45^\circ\) in either
+direction from the fiber direction. The four damage modes are shown in
+Figure \ref{fig:OpenDM4_DamageModes}.
+\begin{figure}[h!]
+  \centering
+  \def\svgwidth{0.8\linewidth}
+  \input{OpenDM4_DamageModes.pdf_tex}
+  \caption{Damage modes in material coordinates $\hat{\pos}$ for the OpenDM 4-Mode
+    damage model. Representative matrix microcracks are shown for each
+    damage mode.}
+  \label{fig:OpenDM4_DamageModes}
+\end{figure}
+
+The definition of \(\vect{H}^1\) and \(\vect{H}^2\) from
+Equation (\ref{eq:OpenDM2_HTens}) are used again. For \(d^4\) and \(d^5\),
+a new definition is given. Since this damage is not aligned with the
+material coordinates, the compliance tensor is not orthotropic, but
+anisotropic. A rotated compliance tensor \(\bar{\vect{S}}\) is used,
+transformed either by a \(45^\circ\) rotation about the \(\hat{\pos}_3\)
+axis for \(d^4\) or a \(-45^\circ\) rotation about the \(\hat{\pos}_3\) axis
+for \(d^5\). The tensors \(\hat{\vect{H}}^n, n = 4,5\) is defined in the
+respective coordinate system as
+\begin{equation}
+  \label{eq:OpenDM4_HTens}
+  \bar{\vect{H}}^n =
+  \begin{bmatrix}
+    \eta^n h_1^n \bar{S}_{11}^0 & 0 & 0 & 0 & h_4^n \bar{S}_{15}^0 & h_4^n \bar{S}_{16}^0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & 0 & 0 \\
+    h_4^n \bar{S}_{15}^0 & 0 & 0 & 0 & h_3^n \bar{S}_{55}^0 & 0 \\
+    h_4^n \bar{S}_{16}^0 & 0 & 0 & 0 & 0 & h_2^n \bar{S}_{66}^0 \\
+  \end{bmatrix},
+\end{equation}
+
+where \(\bar{\vect{S}}^0\) is the undamaged compliance tensor in damage
+coordinates. \(\bar{\vect{H}}^n\) needs to be transformed back to material
+coordinates before use. With a proper transformation matrix
+\(\vect{T}^n\) for the corresponding damage mode coordinate
+system, \(\vect{H}^n, n = 4,5\) is defined as
+\begin{equation}
+  \label{eq:OpenDM4_HTrans}
+  \vect{H}^n = \vect{T}^{\vect{S},n} \bar{\vect{H}}^n (\vect{T}^{\vect{S},n})^T
+\end{equation}
+
+where \(h_1^n\), \(h_2^n\), \(h_3^n\), and \(h_4^n\) are model parameters that scale
+the effect of each fracture mode on material compliance for damage
+mode \(n\) and \(\vect{T}^{\vect{S},n}\) is the transformation from the
+compliance tensor that transforms from the damage coordiantes to
+material coordinates. The additional parameter \(h_4^n\), which captures
+the now nonzero contribution to Mode II and III fracture from the
+rotated compliance tensor. The \(\vect{H}^n\) matrices represent the
+same effects as in the 2-Mode model, that is increased compliance from
+Mode I, II, and III fracture. Equation (\ref{eq:DamageDeactivation})
+is again used to capture microcrack closure for each mode. In the
+\(d^4\) and \(d^5\) case, the normal strain in the rotated coordinates are
+used to turn the damage on or off. 
+
+The driving forces for this model are considerably more
+complicated. They are defined in two steps, the first is a strain
+energy type quantity 
+\begin{equation}
+  \label{eq:OpenDM4_DrivingForceSE}
+  \begin{split}
+    z_1 &= \frac{1}{2} ( \strainComp{1}^{d^{1+}} \vect{C}_{11}^0 \strainComp{1}^{d^{1+}} + 
+          b_2 \strainComp{5}^{d^{1+}} \vect{C}_{55}^0 \strainComp{5}^{d^{1+}} + 
+          b_1 \strainComp{6}^{d^{1+}} \vect{C}_{66}^0 \strainComp{6}^{d^{1+}} ), \\  
+    z_2 &= \frac{1}{2} ( \strainComp{2}^{d^{2+}} \vect{C}_{11}^0 \strainComp{1}^{d^{2+}} + 
+          b_2 \strainComp{4}^{d^{2+}} \vect{C}_{44}^0 \strainComp{4}^{d^{2+}} + 
+          b_1 \strainComp{6}^{d^{2+}} \vect{C}_{66}^0 \strainComp{6}^{d^{2+}} ), \\
+    z_6 &= \frac{1}{4} ( \strainComp{1}^{d^{1+}} \vect{C}_{11}^0 \strainComp{6}^{d^{1+}} + 
+          \strainComp{2}^{d^{2+}} \vect{C}_{22}^0 \strainComp{6}^{d^{2+}} + 
+          b_3 \vect{C}_{66}^0 (\strainComp{6}^{d^{1+}} \strainComp{1}^{d^{1+}} +
+          \strainComp{6}^{d^{2+}} \strainComp{2}^{d^{2+}} ),
+  \end{split}
+\end{equation}
+
+where \(\strain^{d^{1+}}\) and \(\strain^{d^{2+}}\) are the positive parts
+of the strain tensor for the \(d^1\) and \(d^2\) modes, and \(b_3\) is an
+additional parameter to control the effect of shear coupling in
+driving damage. Each mode's strain decomposition is
+\begin{equation}
+  \label{eq:OpenDM4_StrainSplit}
+  \begin{split}
+    \strain^{d^1} &= [\strainComp{1}, 0, 0, \strainComp{5}, \strainComp{6}]^T \\
+    \strain^{d^2} &= [0, \strainComp{2}, 0, \strainComp{4}, 0, \strainComp{6}]^T. \\
+  \end{split}
+\end{equation}
+
+A Macaulay bracket on the eigenvalues of the strain is used to compute
+the positive part of the strain, as discussed in
+(5). The calculation is as follows
+\begin{equation}
+  \label{eq:OpenDM4_PosPartStrain}
+  \strainComp{i}^+ = P_{ij} \langle \hat{\strainComp{j}} \rangle_+,
+\end{equation}
+
+where \(\hat{\strain}\) is the vector of eigenvalues of the strain
+tensor and \(\vect{P}\) is the projection tensor that transforms strain
+from the spectral basis to the material basis.
+
+The driving forces used in Equation (\ref{eq:OpenDM_DamagePotential})
+are then
+\begin{equation}
+  \label{eq:OpenDM4_DrivingForces}
+  \begin{split}
+    y^1 &= z_1 - |z_6| \\ 
+    y^2 &= z_2 - |z_6| \\ 
+    y^4 &= \langle z_6 \rangle_+ \\ 
+    y^5 &= \langle z_6 \rangle_- \\ 
+  \end{split}
+\end{equation}
+
+\subsection{Tangent Stiffness Tensor}
+\label{sec:org6cca6b1}
+For both the 2-Mode and 4-Mode models, the numerical tangent stiffness
+tensor is used. The analytical tangent is certainly tractable for the
+2-Mode model, but the 4-Mode model is quite complicated. In the 4-Mode
+model, behavior depends on the eigenvalues, which requires a
+transformation. The transformation matrix then depends on the
+eigenvectors. To simplify this process, the numerical tangent is used.
+
+The numerical tangent is based on a Taylor series approximation of the
+stress field
+\begin{equation}
+  \label{eq:OpenDM_TaylorStress}
+  \stressComp{i} (\strain + \delta \strainComp{j}) =
+  \stressComp{i} (\strain) +
+  \frac{\partial \stressComp{i}}{\partial \strainComp{j}} (\strain)
+  (\delta \strainComp{j}) + O(\delta \strainComp{j}^2),
+\end{equation}
+
+where there is a bit of notation abuse in
+\(\strain + \delta \strainComp{j}\), which is meant to represent the
+current strain perturbed in the \$j\$-th component by a magnitude of
+\(\delta \strainComp{}\).
+
+Equation\textasciitilde{}(\ref{eq:OpenDM_TaylorStress}) is then rearranged to get the
+tangent stiffness tensor \(\vect{C}^{tan}\)
+\begin{equation}
+  \label{eq:OpenDM_NumTang}
+  \vect{C}_{ij}^{tan} = \frac{\partial \stressComp{i}}{\partial \strainComp{j}} =
+  \frac{\stressComp{i} (\strain + \delta \strainComp{j}) - \stressComp{i} (\strain)}{
+    \delta \strainComp{}}.
+\end{equation}
+
+In words, for each perturbation of strain the difference in stress
+response is calculated, and then normalized by the magnitude of
+the perturbation. Each strain perturbation corresponds to a column of
+the tangent stiffness tensor.
+
+Both the 2-Mode and 4-Mode tangent tensor can be nonsymmetric. This is
+quite cumbersome to deal with numerically, in terms of solver time and
+memory, so the tangent is symmetrized
+\begin{equation}
+  \label{eq:OpenDM_SymTang}
+  \hat{\vect{C}}^{tan} = \frac{1}{2} (\vect{C}^{tan} + (\vect{C}^{tan})^T).
+\end{equation}
+
+This does mean that the tangent stiffness tensor is not exact, and
+thus a Newton-Raphson solver becomes a quasi-newton solver. Also, this
+generally has some effect on the convergence of the system, but the
+symmetrized tensor likely makes up for this with a quicker and less
+memory-dense solver. 
+
+\subsubsection{General comments about the tangent stiffness matrix}
+\label{sec:org3f97406}
+Both the 2-Mode and 4-Mode tangent tensor can be nonsymmetric. This is
+quite cumbersome to deal with numerically, in terms of solver time and
+memory, so the tangent is symmetrized
+\begin{equation}
+  \label{eq:OpenDM_SymTang}
+  \hat{\vect{C}}^{tan} = \frac{1}{2} (\vect{C}^{tan} + (\vect{C}^{tan})^T).
+\end{equation}
+
+This does mean that the tangent stiffness tensor is not exact, and
+thus a Newton-Raphson solver becomes a quasi-newton solver. Also, this
+generally has some effect on the convergence of the system, but the
+symmetrized tensor likely makes up for this with a quicker and less
+memory-dense solver. 
+
+In the numerical explorations of the 2-Mode and 4-Mode damage models,
+both have exhibited softening. This occurs as a result of combined
+damage modes and manifests as negative eigenvalues in the tangent
+stiffness tensor. This has been more of a problem in the 4-Mode model,
+as is evidenced in Section\textasciitilde{}\ref{sec:ModelVal}. Several attempts to
+remedy this have been unsuccessful, including using the nonsymmetric
+tangent tensor, using an arclength solver, smaller load steps, and
+attempts to change convergence tolerances in Abaqus. This is not an
+issue if only a single damage mode is active at a time. It is an issue
+in the validation tests where the response is more complicated. To
+remedy this, problems should be constructed to be
+displacement-controlled.
+
+
+\section{References}
+\label{sec:org3207239}
+\noindent
+[1] Craig Przybyla and Antoine D\'{e}barre and Jean-Fran\c{c}ois Maire and Emmanuel Baranger and Fr\'{e}d\'{e}ric Laurin, \emph{Scaler nonlinear continuum damage models for ceramic matrix composites with and without in plane ply anisotropy at room temperature}, Journal of European Ceramic Society, 2025.
+
+\noindent
+[2] J. L. Chaboche and J. F. Maire, \emph{A new micromechanics based {CDM} model and its application to {CMC}'s}, Aerospace Science and Technology, 2002.
+
+\noindent
+[3] Lionel Marcin and Jean-Francois Maire and Nicolas Carr\`{e}re and Eric Martin, \emph{Development of a Macroscopic Damage Model for Woven Ceramic Matrix Composites}, International Journal of Damage Mechanics, 2011.
+
+\noindent
+[4] Mazurowski, Bryce and Przybyla, Craig and C. Armando Duarte, \emph{Multiscale analysis of open holes and fasteners in {CMC} structures with the Generalized Finite Element Method}, Composite Structures, Submitted.
+
+\noindent
+[5] Murakami, Sumio, \emph{Continuum damage mechanics: a continuum mechanics approach to the analysis of damage and fracture}, Springer Science \& Business Media, 2012.
+\end{document}

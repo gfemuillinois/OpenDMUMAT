@@ -8,18 +8,22 @@ interface to the OpenDM damage model. Both the 2-mode and 4-mode
 versions are implemented.
 
 * Theory manuals
-** 2-Mode
-A theory manual for the 2-mode model can be found [[./Manuals/OpenDM_2Mode_Theory.pdf][here]]
-** 4-Mode
-This manual is still under construction
+A theory manual for the 2-mode model can be found [[/Manuals/OpenDM_TheoryManual.pdf][here]]
 * User manuals
 ** General manual
-A manual for use of the OpenDM UMAT is [[./Manuals/UMAT_UserManual.org][here]]
+A manual for use of the OpenDM UMAT is [[/Manuals/UMAT_UserManual.org][here]]
 This manual is also still under construction.
-
 ** Videos
 Videos of compilation and Abaqus testing of the UMAT are available below
 *** Windows
 Under construction
 *** Linux
 Under construction
+* Dependencies
+- [[https://eigen.tuxfamily.org/index.php?title=Main_Page][Eigen3]]: For vector, matrix, tensor data structures and linear
+  algebra. This can be installed locally or through package managers.
+- [[https://cmake.org/][CMake]]: To build the C++ library used in the OpenDM UMAT
+- [[https://www.intel.com/content/www/us/en/developer/tools/oneapi/overview.html#gs.i7ud54][Intel OneAPI]]: Intel compilers to compile the UMAT through Abaqus
+- [[https://visualstudio.microsoft.com/][Visual Studio]] (Windows Only): to build and compile the UMAT library
+  on Windows machines
+- C++ compiler (linux): gnu or llvm to compile on non-windows machines
