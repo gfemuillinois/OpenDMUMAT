@@ -23,7 +23,7 @@ message("EIGEN_HEADERS=${EIGEN_HEADERS}")
 
 if (OpenDM_USE_NUM_TANG)
    message(WARNING "Using numerical tangent!!!")
-   add_compile_definitions(-DUSE_NUM_TANG)
+   add_compile_definitions(USE_NUM_TANG)
 endif()
 
 # Make lib
