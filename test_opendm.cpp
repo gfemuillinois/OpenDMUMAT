@@ -328,7 +328,7 @@ int runMatPtTest(const int modelVal, const int propSet) {
     cout << "Running " << runInt << endl;
     // file for each run
     std::string runStr = std::to_string(runInt);
-    std::string dir = "../Source/termTests/";
+    std::string dir = "../termTests/";
     std::string fileName = "umat_OpenDM"+modelNum+"_Mat"+propStr+"_Run"+runStr+".csv";
     std::string sep = ", ";
     myFile.open(dir + fileName);
@@ -425,7 +425,7 @@ int runMatPtTest(const int modelVal, const int propSet) {
     }
     myFile.close();
     std::string termString = "diff " + dir + fileName + ' '
-      + "../Source/termTests/gold/" + fileName;
+      + "../termTests/gold/" + fileName;
     if (system(termString.c_str())) {
       std::cout << "TEST FAILED!!! Check " << fileName << std::endl;
       return 1;
