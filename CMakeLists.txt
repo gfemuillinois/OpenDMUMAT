@@ -20,6 +20,7 @@ endif()
 option(OpenDM_USE_NUM_TANG "Use numerical tangent stiffness" ON)
 
 if (${OpenDM_Exec})
+  list(APPEND OpenDMUmat_SRCS "./test_opendm.cpp")
   add_executable(openDMUmat ${OpenDMUmat_SRCS})
 endif()
 
