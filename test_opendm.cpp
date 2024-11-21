@@ -28,11 +28,6 @@ extern "C" void umat(double *stress, double *statev, double *ddsdde,
                      double *dfgrd1, int *noel, int *npt, int *layer, int *kspt,
                      int *kstep, int *kinc);
 
-/** @brief Runs simple matPt test on strain controlled load
- *  for GE SiCSiC material provided by Craig Przybyla AFRL
- */
-int runGEMatPtTest(const int modelVal);
-
 /** @brief set material properties and OpenDM parameters
  *   for test runs
  */
@@ -328,7 +323,12 @@ int runMatPtTest(const int modelVal, const int propSet) {
     cout << "Running " << runInt << endl;
     // file for each run
     std::string runStr = std::to_string(runInt);
-    std::string dir = "../termTests/";
+	std::string dir;
+#if WINDOWS_OS
+    dir = "..\\termTests\\";
+#else
+    dir = "../termTests/";
+#endif
     std::string fileName = "umat_OpenDM"+modelNum+"_Mat"+propStr+"_Run"+runStr+".csv";
     std::string sep = ", ";
     myFile.open(dir + fileName);
@@ -424,8 +424,14 @@ int runMatPtTest(const int modelVal, const int propSet) {
       }
     }
     myFile.close();
-    std::string termString = "diff " + dir + fileName + ' '
+	std::string termString;
+#if WINDOWS_OS
+	termString = "FC " + dir + fileName + ' '
+      + "..\\termTests\\gold\\" + fileName;
+#else 
+	termString = "diff " + dir + fileName + ' '
       + "../termTests/gold/" + fileName;
+#endif
     if (system(termString.c_str())) {
       std::cout << "TEST FAILED!!! Check " << fileName << std::endl;
       return 1;

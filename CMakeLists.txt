@@ -1,8 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(OpenDMUmat)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
+# Get OS and define macro for testing purposes
+if (CMAKE_SYSTEM_NAME MATCHES "Windows")
+  add_compile_definitions(WINDOWS_OS=1)
+else()
+  add_compile_definitions(WINDOWS_OS=0)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+endif()
+
+# add files to project
 add_subdirectory(OpenDMLib)
 
 # Get cpp file in Source Dir
